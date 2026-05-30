@@ -1,0 +1,18 @@
+/*
+  styles.css — Global CSS Overrides and Layout Helpers
+
+  Tailwind CSS (loaded via CDN) handles most utility styling.
+  This file is only for custom rules that Tailwind cannot express:
+
+  - The video+canvas stacking layout (.webcam-container with position: relative)
+  - CSS mirror effect: video and canvas both need transform: scaleX(-1)
+    so the webcam feed feels natural (like a mirror, not a reversed camera)
+  - Canvas z-index above the video element
+  - Custom scrollbar styling for the gesture text output textarea
+  - Transition/animation for the lesson completion overlay (fade in)
+  - Skeleton dot and line color overrides if needed
+  - Loading spinner for the MediaPipe model initialization
+
+  DO NOT put business logic or JavaScript here.
+  DO NOT duplicate styles that Tailwind utility classes already handle.
+*/

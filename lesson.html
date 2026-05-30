@@ -1,0 +1,18 @@
+<!--
+  lesson.html — Active Lesson / Practice Page
+
+  The core interactive page where gesture learning and detection happens.
+  Responsibilities:
+  - Display the current lesson title and target sign (image or GIF reference)
+  - Show the live webcam feed inside a <video> element
+  - Overlay a <canvas> element on top of the video for skeleton drawing
+  - Show a real-time text output box for detected gestures
+  - Show a confidence percentage readout
+  - Handle "Practice Mode" (free practice, no scoring)
+  - Handle "Quiz Mode" (prompts a random sign, scores the user)
+  - Show a lesson completion overlay when the user reaches passing score (80%)
+  - Disable webcam and release the camera when user navigates away (page unload)
+
+  Reads the active lesson from the URL: lesson.html?lessonId=lesson-1a
+  Loads: js/app.js (which orchestrates all other modules)
+-->

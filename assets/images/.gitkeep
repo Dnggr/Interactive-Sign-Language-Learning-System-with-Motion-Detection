@@ -1,0 +1,7 @@
+# General UI assets:
+#   logo.png / logo.svg         Project logo for the site header
+#   favicon.ico                 Browser tab icon
+#   placeholder-webcam.png      Shown before camera permission is granted
+#   level-badge-1.svg           Badge awarded on completing Level 1
+#   level-badge-2.svg           Badge awarded on completing Level 2
+#   level-badge-3.svg           Badge awarded on completing Level 3
