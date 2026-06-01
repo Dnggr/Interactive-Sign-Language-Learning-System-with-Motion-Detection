@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M2 Pipeline Test — Manlangit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0c0f;
+    --surface:   #111318;
+    --surface2:  #181c22;
+    --border:    #232830;
+    --green:     #00e5a0;
+    --green-dim: #00e5a020;
+    --amber:     #f59e0b;
+    --red:       #f87171;
+    --text:      #e8eaf0;
+    --muted:     #5a6070;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    gap: 20px;
+  }
+
+  /* ── Header ── */
+  header {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left h1 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+  .header-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+  .badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .badge.ok  { color: var(--green); border-color: #00e5a040; background: var(--green-dim); }
+  .badge.err { color: var(--red);   border-color: #f8717140; background: #f8717110; }
+
+  /* ── Main grid ── */
+  .grid {
+    width: 100%;
+    max-width: 900px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Camera card — full width ── */
+  .card-wide { grid-column: 1 / -1; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .dot.red    { background: var(--red);   box-shadow: 0 0 6px var(--red);   }
+  .dot.pulse  { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* ── Webcam + canvas ── */
+  .webcam-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  #webcam, #overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  #overlay { z-index: 2; pointer-events: none; }
+
+  #cam-status {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px;
+    background: #000a;
+    transition: opacity .4s;
+  }
+  #cam-status.hidden { opacity: 0; pointer-events: none; }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #cam-status p { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+
+  /* ── Stats row ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .stat {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+  .stat-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); }
+  .stat-value.green { color: var(--green); }
+  .stat-value.amber { color: var(--amber); }
+
+  /* ── Detected sign display ── */
+  .sign-display {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .sign-letter {
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--green);
+    transition: all .15s;
+    letter-spacing: -.04em;
+  }
+  .sign-letter.no-detect { color: var(--muted); font-size: 32px; }
+  .sign-hint { font-size: 12px; color: var(--muted); margin-top: 6px; font-family: var(--mono); }
+
+  /* ── Confidence bar ── */
+  .conf-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .conf-header { display: flex; justify-content: space-between; align-items: center; }
+  .conf-label { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .conf-pct   { font-size: 14px; font-weight: 600; font-family: var(--mono); color: var(--text); }
+  .bar-track  { height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .bar-fill   {
+    height: 100%; width: 0%;
+    background: var(--green);
+    border-radius: 99px;
+    transition: width .15s ease, background .3s;
+  }
+  .bar-fill.low  { background: var(--red); }
+  .bar-fill.mid  { background: var(--amber); }
+  .bar-fill.high { background: var(--green); }
+
+  /* ── Finger state indicators ── */
+  .fingers {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .finger {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+  }
+  .finger-bar {
+    width: 18px;
+    border-radius: 4px 4px 0 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: height .15s, background .15s, border-color .15s;
+  }
+  .finger-bar.on {
+    background: var(--green-dim);
+    border-color: var(--green);
+    box-shadow: 0 0 8px #00e5a030;
+  }
+  .finger-name { font-size: 9px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; }
+
+  /* ── Log panel ── */
+  .log {
+    height: 180px;
+    overflow-y: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .log::-webkit-scrollbar { width: 4px; }
+  .log::-webkit-scrollbar-track { background: transparent; }
+  .log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  .log-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .log-line .ts   { color: #333a47; margin-right: 6px; }
+  .log-line .mod  { color: var(--amber); margin-right: 4px; }
+  .log-line .ok   { color: var(--green); }
+  .log-line .err  { color: var(--red); }
+  .log-line .info { color: var(--text); }
+
+  /* ── Module status list ── */
+  .module-list { display: flex; flex-direction: column; gap: 8px; }
+  .module-row  {
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .module-name { color: var(--text); }
+  .module-status {
+    font-size: 11px; padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .module-status.loaded { color: var(--green); border-color: #00e5a040; background: var(--green-dim); }
+  .module-status.loading { color: var(--amber); border-color: #f59e0b40; background: #f59e0b10; }
+  .module-status.error   { color: var(--red);   border-color: #f8717140; background: #f8717110; }
+
+  /* ── Text output ── */
+  #text-output {
+    width: 100%;
+    height: 72px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--green);
+    resize: none;
+    outline: none;
+  }
+  #text-output::placeholder { color: var(--muted); font-size: 13px; }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    padding: 7px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.danger:hover { border-color: var(--red); background: #f8717110; color: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>Member 2 — Pipeline Tester</h1>
+    <p>[Manlangit]cameratracking-engine · cameraUtils + mediapipe + classifier + dictionary</p>
+  </div>
+  <span class="badge" id="overall-badge">initializing</span>
+</header>
+
+<!-- Camera + canvas — full width -->
+<div class="grid" style="max-width:900px;width:100%;">
+  <div class="card card-wide">
+    <div class="card-title">
+      <span class="dot pulse" id="cam-dot"></span>
+      Live camera feed + skeleton overlay
+    </div>
+    <div class="webcam-wrap">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="cam-status">
+        <div class="spinner"></div>
+        <p id="cam-status-text">Starting camera...</p>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-label">FPS</div>
+        <div class="stat-value" id="fps-val">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Hands detected</div>
+        <div class="stat-value amber" id="hands-val">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Model</div>
+        <div class="stat-value" id="model-val" style="font-size:13px;">loading</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detected sign -->
+  <div class="card">
+    <div class="card-title"><span class="dot" id="sign-dot"></span>Detected sign</div>
+    <div class="sign-display">
+      <div class="sign-letter no-detect" id="sign-letter">—</div>
+      <div class="sign-hint" id="sign-hint">No hand detected</div>
+    </div>
+    <div class="conf-wrap">
+      <div class="conf-header">
+        <span class="conf-label">Confidence</span>
+        <span class="conf-pct" id="conf-pct">0%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="conf-bar"></div></div>
+    </div>
+    <div class="btn-row">
+      <button id="clear-btn" class="danger">Clear output</button>
+      <button id="stop-btn">Stop camera</button>
+    </div>
+  </div>
+
+  <!-- Finger states -->
+  <div class="card">
+    <div class="card-title"><span class="dot" id="finger-dot"></span>Finger states (live)</div>
+    <div class="fingers" id="fingers-display">
+      <div class="finger">
+        <div class="finger-bar" id="f-thumb"  style="height:48px;"></div>
+        <div class="finger-name">Thumb</div>
+      </div>
+      <div class="finger">
+        <div class="finger-bar" id="f-index"  style="height:64px;"></div>
+        <div class="finger-name">Index</div>
+      </div>
+      <div class="finger">
+        <div class="finger-bar" id="f-middle" style="height:72px;"></div>
+        <div class="finger-name">Mid</div>
+      </div>
+      <div class="finger">
+        <div class="finger-bar" id="f-ring"   style="height:64px;"></div>
+        <div class="finger-name">Ring</div>
+      </div>
+      <div class="finger">
+        <div class="finger-bar" id="f-pinky"  style="height:52px;"></div>
+        <div class="finger-name">Pinky</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);font-family:var(--mono);text-align:center;margin-top:-4px;">
+      Green = extended · Gray = folded
+    </div>
+
+    <!-- Text output -->
+    <div class="card-title" style="margin-top:4px;"><span class="dot green"></span>Text output (1.5s hold)</div>
+    <textarea id="text-output" readonly placeholder="Hold a sign steady for 1.5s to register it here..."></textarea>
+  </div>
+
+  <!-- Module status -->
+  <div class="card">
+    <div class="card-title"><span class="dot amber pulse"></span>Module status</div>
+    <div class="module-list">
+      <div class="module-row">
+        <span class="module-name">cameraUtils.js</span>
+        <span class="module-status" id="status-camera">waiting</span>
+      </div>
+      <div class="module-row">
+        <span class="module-name">mediapipe.js</span>
+        <span class="module-status" id="status-mediapipe">waiting</span>
+      </div>
+      <div class="module-row">
+        <span class="module-name">classifier.js</span>
+        <span class="module-status" id="status-classifier">waiting</span>
+      </div>
+      <div class="module-row">
+        <span class="module-name">dictionary.js</span>
+        <span class="module-status" id="status-dictionary">waiting</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dev log — full width -->
+  <div class="card card-wide">
+    <div class="card-title"><span class="dot"></span>Console log</div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+// ══════════════════════════════════════════════════════════════
+// INLINE IMPLEMENTATIONS
+// These match exactly what is in your 4 files.
+// When your repo is set up, replace these with:
+//   import { startCamera, stopCamera } from './js/camera/cameraUtils.js';
+//   import { initMediaPipe, processFrame } from './js/tracking/mediapipe.js';
+//   import { classifyGesture, detectFingerStates } from './js/engine/classifier.js';
+//   import { SIGN_DICTIONARY } from './js/engine/dictionary.js';
+// ══════════════════════════════════════════════════════════════
+
+// ── LOG ──
+function log(module, msg, type = 'info') {
+  const el = document.getElementById('log');
+  const now = new Date();
+  const ts  = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="ts">${ts}</span><span class="mod">[${module}]</span><span class="${type}">${msg}</span>`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  console.log(`[${module}] ${msg}`);
+}
+
+function setStatus(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className   = 'module-status ' + cls;
+}
+
+// ── DICTIONARY (inline copy of dictionary.js) ──
+const SIGN_DICTIONARY = {
+  'A': { fingerStates:[1,0,0,0,0], description:'Fist, thumb beside fingers', category:'alphabet' },
+  'B': { fingerStates:[0,1,1,1,1], description:'Four fingers up, thumb tucked', category:'alphabet' },
+  'C': { fingerStates:[1,1,1,1,1], description:'All fingers curved into C', category:'alphabet' },
+  'D': { fingerStates:[0,1,0,0,0], description:'Index up, others circle', category:'alphabet' },
+  'E': { fingerStates:[0,0,0,0,0], description:'All fingers curl down', category:'alphabet' },
+  'F': { fingerStates:[1,0,1,1,1], description:'Index+thumb circle, others up', category:'alphabet' },
+  'G': { fingerStates:[1,1,0,0,0], description:'Index+thumb point sideways', category:'alphabet' },
+  'H': { fingerStates:[0,1,1,0,0], description:'Index+middle together sideways', category:'alphabet' },
+  'I': { fingerStates:[0,0,0,0,1], description:'Only pinky extended', category:'alphabet' },
+  'J': { fingerStates:[0,0,0,0,1], description:'Pinky up, draw J', category:'alphabet' },
+  'K': { fingerStates:[1,1,1,0,0], description:'Index+middle+thumb up', category:'alphabet' },
+  'L': { fingerStates:[1,1,0,0,0], description:'L shape: thumb+index', category:'alphabet' },
+  'M': { fingerStates:[0,0,0,0,0], description:'Three fingers over thumb', category:'alphabet' },
+  'N': { fingerStates:[0,0,0,0,0], description:'Two fingers over thumb', category:'alphabet' },
+  'O': { fingerStates:[1,1,1,1,1], description:'All tips touch forming O', category:'alphabet' },
+  'P': { fingerStates:[1,1,1,0,0], description:'Like K, pointed down', category:'alphabet' },
+  'Q': { fingerStates:[1,1,0,0,0], description:'Like G, pointed down', category:'alphabet' },
+  'R': { fingerStates:[0,1,1,0,0], description:'Index+middle crossed', category:'alphabet' },
+  'S': { fingerStates:[0,0,0,0,0], description:'Fist, thumb over fingers', category:'alphabet' },
+  'T': { fingerStates:[1,0,0,0,0], description:'Thumb between index+middle', category:'alphabet' },
+  'U': { fingerStates:[0,1,1,0,0], description:'Index+middle up together', category:'alphabet' },
+  'V': { fingerStates:[0,1,1,0,0], description:'Index+middle V spread', category:'alphabet' },
+  'W': { fingerStates:[0,1,1,1,0], description:'Three fingers spread', category:'alphabet' },
+  'X': { fingerStates:[0,1,0,0,0], description:'Index hooked/bent', category:'alphabet' },
+  'Y': { fingerStates:[1,0,0,0,1], description:'Thumb+pinky extended (hang loose)', category:'alphabet' },
+  'Z': { fingerStates:[0,1,0,0,0], description:'Index draws Z in air', category:'alphabet' },
+  'HELLO':      { fingerStates:[1,1,1,1,1], description:'Open hand wave from forehead', category:'word' },
+  'THANK YOU':  { fingerStates:[1,1,1,1,1], description:'Flat hand from chin forward', category:'word' },
+  'PLEASE':     { fingerStates:[1,1,1,1,1], description:'Open hand circular on chest', category:'word' },
+  'SORRY':      { fingerStates:[0,0,0,0,0], description:'Fist circular on chest', category:'word' },
+  'YES':        { fingerStates:[0,0,0,0,0], description:'Fist nods forward', category:'word' },
+  'NO':         { fingerStates:[0,1,1,0,0], description:'Index+middle snap down', category:'word' },
+  'HELP':       { fingerStates:[1,0,0,0,0], description:'Thumb-up lifted by other hand', category:'word' },
+  'I LOVE YOU': { fingerStates:[1,1,0,0,1], description:'ILY: thumb+index+pinky out', category:'word' },
+  'WATER':      { fingerStates:[0,1,1,1,0], description:'W shape, tap chin', category:'word' },
+  'FOOD':       { fingerStates:[1,1,1,1,1], description:'Pinched fingers to lips', category:'word' },
+  'GOODBYE':    { fingerStates:[0,1,1,1,1], description:'Fingers wave down repeatedly', category:'word' },
+  'SPACE':      { fingerStates:[1,1,1,1,1], description:'Open flat hand → insert space', category:'control' },
+  'BACKSPACE':  { fingerStates:[0,0,0,0,0], description:'Closed fist → delete character', category:'control' },
+};
+
+// ── CLASSIFIER (inline copy of classifier.js) ──
+const WRIST=0,THUMB_MCP=2,THUMB_TIP=4,INDEX_MCP=5,INDEX_TIP=8,
+      MIDDLE_MCP=9,MIDDLE_TIP=12,RING_MCP=13,RING_TIP=16,PINKY_MCP=17,PINKY_TIP=20;
+const CONFIDENCE_THRESHOLD = 75;
+
+function isFingerExtended(lm, tipIdx, mcpIdx) {
+  return lm[tipIdx].y < lm[mcpIdx].y ? 1 : 0;
+}
+function isThumbExtended(lm) {
+  const tipDist = Math.abs(lm[THUMB_TIP].x - lm[WRIST].x);
+  const mcpDist = Math.abs(lm[THUMB_MCP].x - lm[WRIST].x);
+  return tipDist > mcpDist * 1.3 ? 1 : 0;
+}
+function detectFingerStates(lm) {
+  return [
+    isThumbExtended(lm),
+    isFingerExtended(lm, INDEX_TIP,  INDEX_MCP),
+    isFingerExtended(lm, MIDDLE_TIP, MIDDLE_MCP),
+    isFingerExtended(lm, RING_TIP,   RING_MCP),
+    isFingerExtended(lm, PINKY_TIP,  PINKY_MCP),
+  ];
+}
+function compareFingerStates(live, ref) {
+  if (!ref || live.length !== ref.length) return 0;
+  let m = 0;
+  for (let i = 0; i < live.length; i++) if (live[i] === ref[i]) m++;
+  return m / live.length;
+}
+function classifyGesture(landmarks) {
+  if (!landmarks || landmarks.length < 21)
+    return { label: null, confidence: 0, matched: false };
+  const fs = detectFingerStates(landmarks);
+  let bestLabel = null, bestScore = 0;
+  for (const [label, data] of Object.entries(SIGN_DICTIONARY)) {
+    const s = compareFingerStates(fs, data.fingerStates);
+    if (s > bestScore) { bestScore = s; bestLabel = label; }
+  }
+  const confidence = Math.round(bestScore * 100);
+  return { label: confidence >= CONFIDENCE_THRESHOLD ? bestLabel : null, confidence, matched: confidence >= CONFIDENCE_THRESHOLD };
+}
+
+// ── RENDERER (inline, matches renderer.js spec) ──
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],
+];
+function drawSkeleton(ctx, handsLandmarks, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  if (!handsLandmarks || handsLandmarks.length === 0) return;
+  for (const lm of handsLandmarks) {
+    ctx.strokeStyle = '#FFFFFF55';
+    ctx.lineWidth   = 2;
+    ctx.lineCap     = 'round';
+    for (const [a, b] of HAND_CONNECTIONS) {
+      ctx.beginPath();
+      ctx.moveTo(lm[a].x * w, lm[a].y * h);
+      ctx.lineTo(lm[b].x * w, lm[b].y * h);
+      ctx.stroke();
+    }
+    for (let i = 0; i < lm.length; i++) {
+      const isTip = [4,8,12,16,20].includes(i);
+      ctx.beginPath();
+      ctx.arc(lm[i].x * w, lm[i].y * h, isTip ? 6 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? '#f59e0b' : (isTip ? '#ffffff' : '#00e5a0');
+      ctx.fill();
+    }
+  }
+}
+
+// ── MEDIAPIPE LOADER ──
+// FLICKER FIX (v1.1): added ghost frame persistence + raised confidence thresholds
+let handLandmarker = null;
+let lastVideoTime  = -1;
+
+// How many consecutive empty frames to tolerate before clearing landmarks.
+// At 30fps, 5 frames ≈ 167ms — smooths brief occlusions without feeling "sticky".
+const GHOST_FRAMES = 5;
+let ghostCounter       = 0;
+let lastGoodLandmarks  = null;
+let lastGoodHandedness = null;
+let lastGoodDominant   = null;
+
+async function initMediaPipe() {
+  setStatus('status-mediapipe', 'loading...', 'loading');
+  log('mediapipe', 'Fetching HandLandmarker model from CDN (~8MB)...', 'info');
+  try {
+    const { HandLandmarker, FilesetResolver } = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm'
+    );
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+    );
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 2,
+      // FLICKER FIX: raised from 0.5 → 0.7 / 0.7 / 0.6
+      // Lower values caused MediaPipe to drop and re-acquire the hand every few frames,
+      // producing the flickering "hands: 1 → 0 → 1 → 0" pattern on the counter.
+      minHandDetectionConfidence: 0.7,
+      minHandPresenceConfidence:  0.7,
+      minTrackingConfidence:      0.6,
+    });
+    setStatus('status-mediapipe', 'loaded ✓', 'loaded');
+    document.getElementById('model-val').textContent = 'ready';
+    document.getElementById('model-val').style.color = 'var(--green)';
+    log('mediapipe', 'HandLandmarker model ready.', 'ok');
+    return true;
+  } catch (e) {
+    setStatus('status-mediapipe', 'error', 'error');
+    log('mediapipe', 'Failed to load model: ' + e.message, 'err');
+    return false;
+  }
+}
+
+function processFrame(videoEl) {
+  if (!handLandmarker) return { landmarks: [], handedness: [], dominantLandmarks: null };
+
+  // Same frame as last time — return last good data instead of empty arrays.
+  // Previously returned empty arrays, which caused the hand counter to flash 0
+  // on every duplicate/skipped frame.
+  if (videoEl.currentTime === lastVideoTime) {
+    return {
+      landmarks:         lastGoodLandmarks  ?? [],
+      handedness:        lastGoodHandedness ?? [],
+      dominantLandmarks: lastGoodDominant,
+    };
+  }
+  lastVideoTime = videoEl.currentTime;
+
+  const result     = handLandmarker.detectForVideo(videoEl, performance.now());
+  const landmarks  = result.landmarks  ?? [];
+  const handedness = result.handedness ?? [];
+
+  if (landmarks.length > 0) {
+    // Hand found — reset ghost counter and cache
+    ghostCounter       = 0;
+    lastGoodLandmarks  = landmarks;
+    lastGoodHandedness = handedness;
+
+    // Pick dominant (right) hand — MediaPipe reports "Left" for user's right (mirrored webcam)
+    lastGoodDominant = null;
+    if (landmarks.length === 1) {
+      lastGoodDominant = landmarks[0];
+    } else {
+      for (let i = 0; i < handedness.length; i++) {
+        const cat = handedness[i]?.[0]?.categoryName ?? '';
+        if (cat === 'Left') { lastGoodDominant = landmarks[i]; break; }
+      }
+      if (!lastGoodDominant) lastGoodDominant = landmarks[0];
+    }
+
+    return { landmarks, handedness, dominantLandmarks: lastGoodDominant };
+  }
+
+  // FLICKER FIX: no hand detected this frame.
+  // Increment ghost counter. If within tolerance, return last known data.
+  // This hides brief 1–5 frame dropout gaps from the rest of the pipeline.
+  ghostCounter++;
+  if (ghostCounter <= GHOST_FRAMES && lastGoodLandmarks) {
+    return {
+      landmarks:         lastGoodLandmarks,
+      handedness:        lastGoodHandedness,
+      dominantLandmarks: lastGoodDominant,
+    };
+  }
+
+  // Hand is truly gone — clear cached state
+  lastGoodLandmarks  = null;
+  lastGoodHandedness = null;
+  lastGoodDominant   = null;
+  return { landmarks: [], handedness: [], dominantLandmarks: null };
+}
+
+// ── CAMERA ──
+async function startCamera(videoEl, canvasEl) {
+  setStatus('status-camera', 'requesting...', 'loading');
+  log('cameraUtils', 'Requesting webcam permission...', 'info');
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+    audio: false,
+  });
+  videoEl.srcObject = stream;
+  await new Promise((res, rej) => {
+    videoEl.onloadedmetadata = () => videoEl.play().then(() => {
+      canvasEl.width  = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+      res();
+    }).catch(rej);
+    videoEl.onerror = rej;
+  });
+  setStatus('status-camera', 'streaming ✓', 'loaded');
+  log('cameraUtils', `Camera ready: ${videoEl.videoWidth}x${videoEl.videoHeight}`, 'ok');
+}
+
+// ── DEBOUNCE STATE ──
+let holdStart   = null;
+let inCooldown  = false;
+const HOLD_MS   = 1500;
+const COOL_MS   = 1000;
+
+function handleDebounce(result) {
+  if (inCooldown || !result.matched) { holdStart = null; return; }
+  if (!holdStart) { holdStart = Date.now(); return; }
+  if (Date.now() - holdStart >= HOLD_MS) {
+    const ta = document.getElementById('text-output');
+    if (result.label === 'BACKSPACE') {
+      ta.value = ta.value.slice(0, -1);
+    } else if (result.label === 'SPACE') {
+      ta.value += ' ';
+    } else {
+      ta.value += result.label.length === 1 ? result.label : result.label + ' ';
+    }
+    ta.scrollTop = ta.scrollHeight;
+    holdStart = null;
+    inCooldown = true;
+    setTimeout(() => { inCooldown = false; }, COOL_MS);
+    log('feedback', `Registered: "${result.label}" (${result.confidence}%)`, 'ok');
+  }
+}
+
+// ── MAIN ──
+const videoEl  = document.getElementById('webcam');
+const canvasEl = document.getElementById('overlay');
+const ctx      = canvasEl.getContext('2d');
+
+setStatus('status-classifier', 'loaded ✓', 'loaded');
+setStatus('status-dictionary', `loaded ✓ (${Object.keys(SIGN_DICTIONARY).length} signs)`, 'loaded');
+log('classifier', 'Module ready.', 'ok');
+log('dictionary', `${Object.keys(SIGN_DICTIONARY).length} signs loaded (A–Z + words + phrases).`, 'ok');
+
+let frameCount = 0, lastFpsTime = Date.now();
+
+async function main() {
+  // Start camera
+  try {
+    await startCamera(videoEl, canvasEl);
+    document.getElementById('cam-dot').classList.add('green');
+    document.getElementById('cam-dot').classList.remove('pulse');
+  } catch (e) {
+    log('cameraUtils', 'Camera error: ' + e.message, 'err');
+    setStatus('status-camera', 'error', 'error');
+    document.getElementById('cam-status-text').textContent = '⚠️ ' + e.message;
+    document.getElementById('overall-badge').textContent = 'camera error';
+    document.getElementById('overall-badge').className = 'badge err';
+    return;
+  }
+
+  // Load MediaPipe
+  const modelOk = await initMediaPipe();
+  if (!modelOk) {
+    document.getElementById('cam-status-text').textContent = '⚠️ Failed to load AI model. Check console.';
+    document.getElementById('overall-badge').textContent = 'model error';
+    document.getElementById('overall-badge').className = 'badge err';
+    return;
+  }
+
+  // Hide loading overlay
+  document.getElementById('cam-status').classList.add('hidden');
+  document.getElementById('overall-badge').textContent = 'all systems go';
+  document.getElementById('overall-badge').className = 'badge ok';
+  log('app', 'All modules loaded. Detection loop started.', 'ok');
+
+  // Detection loop
+  function loop() {
+    const { landmarks, dominantLandmarks } = processFrame(videoEl);
+
+    // FPS counter
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+      document.getElementById('fps-val').textContent = frameCount;
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+
+    // Draw skeleton
+    drawSkeleton(ctx, landmarks, canvasEl.width, canvasEl.height);
+
+    // Update hand count
+    document.getElementById('hands-val').textContent = landmarks.length;
+
+    if (dominantLandmarks) {
+      // Classify
+      const result = classifyGesture(dominantLandmarks);
+      const fs     = detectFingerStates(dominantLandmarks);
+
+      // Update finger indicators
+      const names = ['thumb','index','middle','ring','pinky'];
+      const heights = [48, 64, 72, 64, 52];
+      names.forEach((n, i) => {
+        const el = document.getElementById('f-' + n);
+        el.style.height = heights[i] + 'px';
+        el.classList.toggle('on', fs[i] === 1);
+      });
+
+      // Update confidence bar
+      const bar   = document.getElementById('conf-bar');
+      const pctEl = document.getElementById('conf-pct');
+      bar.style.width = result.confidence + '%';
+      pctEl.textContent = result.confidence + '%';
+      bar.className = 'bar-fill ' +
+        (result.confidence >= 75 ? 'high' : result.confidence >= 50 ? 'mid' : 'low');
+
+      // Update sign display
+      const letterEl = document.getElementById('sign-letter');
+      const hintEl   = document.getElementById('sign-hint');
+      if (result.matched && result.label) {
+        letterEl.textContent = result.label;
+        letterEl.className   = 'sign-letter';
+        hintEl.textContent   = SIGN_DICTIONARY[result.label]?.description ?? '';
+        document.getElementById('sign-dot').className = 'dot green';
+        document.getElementById('finger-dot').className = 'dot green';
+      } else {
+        letterEl.textContent = '?';
+        letterEl.className   = 'sign-letter no-detect';
+        hintEl.textContent   = `Low confidence (${result.confidence}%)`;
+        document.getElementById('sign-dot').className = 'dot amber';
+        document.getElementById('finger-dot').className = 'dot amber';
+      }
+
+      // Debounce → text output
+      handleDebounce(result);
+
+    } else {
+      // No hand
+      const names = ['thumb','index','middle','ring','pinky'];
+      names.forEach(n => document.getElementById('f-' + n).classList.remove('on'));
+      document.getElementById('conf-bar').style.width = '0%';
+      document.getElementById('conf-pct').textContent  = '0%';
+      document.getElementById('sign-letter').textContent = '—';
+      document.getElementById('sign-letter').className   = 'sign-letter no-detect';
+      document.getElementById('sign-hint').textContent   = 'No hand detected';
+      document.getElementById('sign-dot').className      = 'dot';
+      document.getElementById('finger-dot').className    = 'dot';
+      holdStart = null;
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// Buttons
+document.getElementById('clear-btn').onclick = () => {
+  document.getElementById('text-output').value = '';
+  log('app', 'Text output cleared.', 'info');
+};
+document.getElementById('stop-btn').onclick = () => {
+  if (videoEl.srcObject) {
+    videoEl.srcObject.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+    log('cameraUtils', 'Camera stopped.', 'info');
+    document.getElementById('cam-dot').className = 'dot red';
+    document.getElementById('overall-badge').textContent = 'camera stopped';
+    document.getElementById('overall-badge').className = 'badge err';
+  }
+};
+
+window.addEventListener('beforeunload', () => {
+  if (videoEl.srcObject) videoEl.srcObject.getTracks().forEach(t => t.stop());
+});
+
+main();
+</script>
+</body>
+</html>
