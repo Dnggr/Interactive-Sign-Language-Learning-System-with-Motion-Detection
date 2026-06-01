@@ -60,6 +60,12 @@
   9–12 = Middle  (MCP → Tip)
   13–16= Ring    (MCP → Tip)
   17–20= Pinky   (MCP → Tip)
+
+  ── FLICKER FIX (v1.1) ──
+  Added landmark persistence buffer (GHOST_FRAMES = 5).
+  When detection drops for ≤5 frames (e.g. brief occlusion or confidence dip),
+  the last known landmarks are returned instead of null.
+  This eliminates the "hands: 1 → 0 → 1 → 0" flickering on the counter.
 */
 
 import {
@@ -72,6 +78,16 @@ import {
 // ─────────────────────────────────────────────────────────
 let handLandmarker  = null;   // The loaded model instance
 let lastVideoTime   = -1;     // Prevents reprocessing the same frame
+
+// ── FLICKER FIX: persistence state ──
+// How many consecutive empty frames to tolerate before clearing landmarks.
+// At 30fps, 5 frames = ~167ms — long enough to smooth over brief occlusions
+// but short enough that the user will never notice the hand "sticking".
+const GHOST_FRAMES = 5;
+let ghostCounter        = 0;          // Counts consecutive empty detection frames
+let lastGoodLandmarks   = null;       // Last landmarks array when hands were found
+let lastGoodHandedness  = null;       // Last handedness array when hands were found
+let lastGoodDominant    = null;       // Last dominant hand landmarks when found
 
 // ─────────────────────────────────────────────────────────
 // Public API
@@ -98,9 +114,15 @@ export async function initMediaPipe() {
         },
         runningMode:       'VIDEO',  // VIDEO mode: optimized for continuous webcam frames
         numHands:          2,        // Detect up to 2 hands
-        minHandDetectionConfidence: 0.5,
-        minHandPresenceConfidence:  0.5,
-        minTrackingConfidence:      0.5,
+
+        // ── FLICKER FIX: raised from 0.5 → 0.7 / 0.7 / 0.6 ──
+        // Lower values caused MediaPipe to drop and re-acquire the hand every few frames,
+        // producing the flickering "hands: 1 → 0 → 1 → 0" pattern.
+        // Higher thresholds mean MediaPipe only reports a hand when it is confident,
+        // producing a stable lock instead of noisy on/off toggling.
+        minHandDetectionConfidence: 0.7,
+        minHandPresenceConfidence:  0.7,
+        minTrackingConfidence:      0.6,
     });
 
     console.log('[mediapipe] HandLandmarker model ready.');
@@ -114,6 +136,11 @@ export async function initMediaPipe() {
  * MediaPipe returns all detected hands in an array.
  * This function sorts results so the dominant (right) hand is always first.
  * If only one hand is visible, that hand is returned regardless of which hand it is.
+ *
+ * ── FLICKER FIX: GHOST FRAME PERSISTENCE ──
+ * When detection returns 0 hands for up to GHOST_FRAMES consecutive frames,
+ * the last known landmarks are returned instead of null.
+ * After GHOST_FRAMES empty frames in a row, we treat the hand as truly gone.
  *
  * @param {HTMLVideoElement} videoElement
  * @returns {{
@@ -130,7 +157,14 @@ export function processFrame(videoElement) {
 
     // Guard: same frame as last time — skip to avoid duplicate processing
     if (videoElement.currentTime === lastVideoTime) {
-        return { landmarks: [], handedness: [], dominantLandmarks: null };
+        // ── FLICKER FIX: return last good data on skipped frames too ──
+        // Previously this returned empty arrays, which caused the hand counter
+        // to flash 0 on every skipped/duplicate frame.
+        return {
+            landmarks:         lastGoodLandmarks  ?? [],
+            handedness:        lastGoodHandedness ?? [],
+            dominantLandmarks: lastGoodDominant,
+        };
     }
     lastVideoTime = videoElement.currentTime;
 
@@ -139,6 +173,37 @@ export function processFrame(videoElement) {
 
     const landmarks  = result.landmarks  ?? [];
     const handedness = result.handedness ?? [];
+
+    if (landmarks.length > 0) {
+        // ── FLICKER FIX: hand found — reset ghost counter and cache results ──
+        ghostCounter       = 0;
+        lastGoodLandmarks  = landmarks;
+        lastGoodHandedness = handedness;
+        lastGoodDominant   = pickDominantHand(landmarks, handedness);
+
+        return {
+            landmarks,
+            handedness,
+            dominantLandmarks: lastGoodDominant,
+        };
+    }
+
+    // ── FLICKER FIX: no hand detected this frame ──
+    // Increment ghost counter. If within tolerance, return last known data.
+    // This hides brief 1–5 frame dropout gaps from the rest of the pipeline.
+    ghostCounter++;
+    if (ghostCounter <= GHOST_FRAMES && lastGoodLandmarks) {
+        return {
+            landmarks:         lastGoodLandmarks,
+            handedness:        lastGoodHandedness,
+            dominantLandmarks: lastGoodDominant,
+        };
+    }
+
+    // Hand is truly gone — clear cached state and return empty
+    lastGoodLandmarks  = null;
+    lastGoodHandedness = null;
+    lastGoodDominant   = null;
 
     // ── RIGHT-HAND PRIORITY LOGIC ──
     // MediaPipe's handedness is mirrored because the webcam is mirrored.
