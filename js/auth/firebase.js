@@ -44,3 +44,48 @@
   from a separate config file (e.g. js/auth/firebaseConfig.js) that is
   listed in .gitignore, or use environment variables with a bundler.
 */
+ // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+      import { getAuth,
+        signInWithEmailAndPassword,
+        connectAuthEmulator } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
+      import { getFirestore } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+      // TODO: Add SDKs for Firebase products that you want to use
+      // https://firebase.google.com/docs/web/setup#available-libraries
+
+      // Your web app's Firebase configuration
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+      const firebaseConfig = {
+        apiKey: "AIzaSyDK5li_O9msniLbS7OU2rAFab9gHqOCOVM",
+        authDomain: "test-signlanguage.firebaseapp.com",
+        projectId: "test-signlanguage",
+        storageBucket: "test-signlanguage.firebasestorage.app",
+        messagingSenderId: "873720715606",
+        appId: "1:873720715606:web:7da600331b9d8c5a851ef7",
+        measurementId: "G-TNZZCZMYL9"
+      };
+
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+
+      connectAuthEmulator(auth, "http://localhost:9099");
+
+      const loginUser = async () => {
+        const email = document.getElementById("signup-email").value;
+        const password = document.getElementById("signup-password").value;
+
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        console.log(userCredential.user);
+        goToPage();
+      }
+
+      function goToPage(){
+        window.location.href = "dashboard.html";
+      }
+
+      const btn = document.getElementById("signup-btn");
+      btn.addEventListener("click", () => {
+            console.log("clicked");
+            console.log("email: " + document.getElementById("signup-email").value);
+      });
