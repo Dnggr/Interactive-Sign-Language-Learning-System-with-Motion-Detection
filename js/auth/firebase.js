@@ -45,47 +45,96 @@
   listed in .gitignore, or use environment variables with a bundler.
 */
  // Import the functions you need from the SDKs you need
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
-      import { getAuth,
-        signInWithEmailAndPassword,
-        connectAuthEmulator } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
-      import { getFirestore } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
-      // TODO: Add SDKs for Firebase products that you want to use
-      // https://firebase.google.com/docs/web/setup#available-libraries
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
+import { getFirestore, setDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
-      // Your web app's Firebase configuration
-      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-      const firebaseConfig = {
-        apiKey: "AIzaSyDK5li_O9msniLbS7OU2rAFab9gHqOCOVM",
-        authDomain: "test-signlanguage.firebaseapp.com",
-        projectId: "test-signlanguage",
-        storageBucket: "test-signlanguage.firebasestorage.app",
-        messagingSenderId: "873720715606",
-        appId: "1:873720715606:web:7da600331b9d8c5a851ef7",
-        measurementId: "G-TNZZCZMYL9"
-      };
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDK5li_O9msniLbS7OU2rAFab9gHqOCOVM",
+  authDomain: "test-signlanguage.firebaseapp.com",
+  projectId: "test-signlanguage",
+  storageBucket: "test-signlanguage.firebasestorage.app",
+  messagingSenderId: "873720715606",
+  appId: "1:873720715606:web:7da600331b9d8c5a851ef7",
+  measurementId: "G-TNZZCZMYL9"
+};
 
-      // Initialize Firebase
-      const app = initializeApp(firebaseConfig);
-      const auth = getAuth(app);
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
-      connectAuthEmulator(auth, "http://localhost:9099");
 
-      const loginUser = async () => {
-        const email = document.getElementById("signup-email").value;
-        const password = document.getElementById("signup-password").value;
+const btn = document.getElementById("signUpBtn");
+btn.addEventListener('click', (e) => {
+      e.preventDefault();
 
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        console.log(userCredential.user);
-        goToPage();
-      }
+      const email = document.getElementById("signUpEmail").value;
+      const password = document.getElementById("signUpPassword").value;
+      const fname = document.getElementById("signUpFirstName").value;
+      const lname = document.getElementById("signUpLastName").value;
 
-      function goToPage(){
-        window.location.href = "dashboard.html";
-      }
+      const auth = getAuth();
+      const db = getFirestore();
 
-      const btn = document.getElementById("signup-btn");
-      btn.addEventListener("click", () => {
-            console.log("clicked");
-            console.log("email: " + document.getElementById("signup-email").value);
-      });
+      createUserWithEmailAndPassword(auth,email,password)
+      .then((userCredential) => {
+          const user = userCredential.user;
+          const userData = {
+              email: email,
+              firstname: fname,
+              lastname: lname
+          };
+
+      const docRef = doc(db, "users", user.uid);
+
+      setDoc(docRef, userData)
+      .then(() => {
+        /*dto mo ilalagay yung mga kailangan gawin kapag tapos na
+        o successful na ang pag save ng user data sa firestore, at sa auth 
+        */
+        const greet = document.getElementById("greet");
+        greet.textContent = `Welcome, ${userData.firstname} ${userData.lastname}! Your account has been created.`;
+      })//setDoc end bracket
+
+      .catch((error) => {
+        const errorcode = error.code;
+        if(errorcode === "auth/email-already-in-use"){
+          alert("Email already in use. Please use a different email.");
+        } else {
+          alert("Error saving user data: " + error.message);
+        }
+      })//catch end bracket
+
+    });//createUserWithEmailAndPassword end bracket
+
+});//btn event listener end bracket
+
+const btn2 = document.getElementById("signInBtn");
+btn2.addEventListener('click', (e) => {
+  e.preventDefault();
+
+  const email = document.getElementById("signInEmail").value;
+  const password = document.getElementById("signInPassword").value;
+  
+  const auth = getAuth();
+  signInWithEmailAndPassword(auth,email,password)
+  .then((userCredential) => {
+    const user = userCredential.user;
+    
+    localStorage.setItem("loggedInUserId", user.uid);
+    window.location.href = "dashboard.html";
+  })
+  .catch((error) => {
+    const errorcode = error.code;
+    if(errorcode === "auth/invalid-credential"){
+      alert("Incorrect email or password. Please try again.");
+    } else {
+      alert("Error signing in: " + error.message);
+    }
+  });
+});

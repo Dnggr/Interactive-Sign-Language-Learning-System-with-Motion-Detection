@@ -12,3 +12,20 @@
 
   Loads: js/auth/firebase.js, js/ui/dashboard.js, js/lessons/curriculum.js
 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard</title>
+</head>
+<body>
+    <h1>Welcome to Your Dashboard</h1>
+    <div>First Name: <span id="loggedInUserFirstName"></span></div>
+    <div>Last Name: <span id="loggedInUserLastName"></span></div>
+    <div>Email: <span id="loggedInUserEmail"></span></div>
+    <button id="logOutBtn">Logout</button>
+
+    <script src="data/dashboardData.js" type="module"></script>
+</body>
+</html>
