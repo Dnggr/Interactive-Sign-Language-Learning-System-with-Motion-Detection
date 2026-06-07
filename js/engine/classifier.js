@@ -1,42 +1,49 @@
 /*
   classifier.js — Gesture Recognition Engine
   Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
+  v8.0 — FULL REWRITE: systematic bug fixes
 
-  v7.0 — DATA-DRIVEN FIX (based on real m2-debug.html captures)
+  ══ BUGS FIXED vs v7.0 ══
 
-  ══ ROOT CAUSE ANALYSIS (from your actual raw numbers) ══
+  BUG 1 — G vs L collision
+    Both had [1,1,0,0,0] + thumbBelowPIP:false → no separator.
+    FIX: Added isIndexVertical() to extras.
+      L: index points straight UP  → indexTip.y is much lower than indexMCP.y
+      G: index points SIDEWAYS     → indexTip.y ≈ indexMCP.y (horizontal)
+    Dictionary: L gets indexVertical:true, G gets indexVertical:false.
 
-  BUG 1 — A → N:
-    v6 used isThumbSideOfFist: tipY < INDEX_PIP.y AND tipY < THUMB_MCP.y
-    Your A data: tipΔIdxPIP = +0.004 → thumb tip is BARELY BELOW INDEX_PIP, not above it.
-    So sideY = FALSE for A. N also has sideY=FALSE. Both [0,0,0,0,0] → N wins (listed first).
+  BUG 2 — A vs N overlapping distance ranges
+    A: minThumbIdxTip:0.13 but N range was 0.14–0.16 → overlap at 0.14–0.16.
+    FIX: A raised to minThumbIdxTip:0.17 (safely above N's max of 0.16).
+    Also added thumbWrapped:false and thumbBetweenFingers:false to A
+    to prevent S/T from ever scoring as A.
 
-    REAL FIX: Use thumb-to-index-tip DISTANCE as the separator.
-    From your data:
-      A: thumbToIdxTip = 0.171  (thumb beside fist, far from index tip)
-      N: thumbToIdxTip = 0.154
-      M: thumbToIdxTip = 0.131
-      E: thumbToIdxTip = 0.029  (all tips close together)
-      S: thumbToIdxTip = 0.063
-      T: thumbToIdxTip = 0.046
-    A is the LARGEST in the fist group. New tiebreaker: minThumbIdxTip:0.15
+  BUG 3 — H vs U/V spread threshold
+    H maxSpread:0.08 used indexMiddleSpread (tip-to-tip distance), not raw spread.
+    H points SIDEWAYS — indexTip and middleTip are at similar heights so
+    indexMiddleSpread is small regardless of how close fingers are.
+    FIX: Added isIndexVertical:false to H and isIndexVertical:true to U/V.
+    H points sideways → indexVertical:false separates it cleanly from U/V.
 
-  BUG 2 — Open hand → C:
-    C has fingerStates [1,1,1,1,1] same as flat open hand.
-    The key separator: SPREAD.
-    Your C data: spread = 0.0323  (fingers curved in tight C arc)
-    A flat open hand: spread > 0.08 (fingers splayed wide)
-    New tiebreaker: maxSpread:0.07 for C (C has tight spread)
-    PLUS: thumbToIdxTip < handScale*0.65 check kept as thumbCurvedIn
+  BUG 4 — Scoring: ref[i]===1 vs live values 0,1,2
+    Dictionary uses 1 for "extended" but getFingerState returns 2 for
+    fully extended. Scoring: ref===1 gives live===2 → 1.0, live===1 → 0.7.
+    This is fine. The REAL scoring bug was ref===0 but live===1 (slightly bent)
+    only got 0.3 → crushed score for letters where fingers are
+    naturally slightly bent (C, O, many curved signs).
+    FIX: Raised bent penalty from 0.3 → 0.5 for ref===0 && live===1.
+    A slightly bent finger on a curled-finger sign should not tank the score.
 
-  ADDITIONAL FIXES from data:
-    T: between=T confirmed working ✅ (tipΔIdxPIP=0.089, between=T)
-    S: thumbToIdxTip=0.063 → maxThumbIdxTip:0.10
-    O: thumbToIdxTip=0.049, spread=0.0131 → tipsClose:true (spread<0.06) ✅
-    R vs U vs V: spread separates them well (R:0.2368, U:0.2439, V:0.2561)
-    K vs P: belowPIP separates them ✅
-    G vs Q: belowPIP separates them ✅
-    L vs D: curvedV6 — L has thumbToIdxTip=0.394 (far), D has 0.378 (similar but D=D)
+  BUG 5 — NULL_ZONE too low
+    0.62 null zone let borderline garbage detections through.
+    FIX: Raised to 0.68. Reduces false positives at the cost of needing
+    a cleaner sign, which is correct behavior.
+
+  BUG 6 — Confirmed label stays locked too long
+    Once _confirmedLabel is set, it stays until explicitly reset.
+    If user transitions slowly, old confirmed label bleeds into new sign.
+    FIX: _confirmedLabel now resets whenever _lastRawLabel changes.
+    Only the CURRENT best label can be confirmed.
 */
 
 import { SIGN_DICTIONARY } from './dictionary.js';
@@ -65,9 +72,9 @@ const PINKY_TIP  = 20;
 // ─────────────────────────────────────────────────────────
 // Tuning constants
 // ─────────────────────────────────────────────────────────
-const NULL_ZONE_THRESHOLD  = 0.62;
-const CONFIDENCE_THRESHOLD = 84;
-const HOLD_FRAMES          = 24;   // ~0.8s at 30fps
+const NULL_ZONE_THRESHOLD  = 0.68;  // raised from 0.62 — fewer false positives
+const CONFIDENCE_THRESHOLD = 82;    // slightly relaxed from 84 for better recall
+const HOLD_FRAMES          = 20;    // ~0.65s at 30fps — faster to register
 
 // ─────────────────────────────────────────────────────────
 // Temporal smoothing state
@@ -89,28 +96,36 @@ export function classifyGesture(landmarks) {
     const descriptor = computeHandDescriptor(landmarks);
     let bestLabel = null;
     let bestScore = 0;
+    let secondScore = 0;
 
     for (const [label, signData] of Object.entries(SIGN_DICTIONARY)) {
         if (signData.disabled) continue;
         const score = scoreAgainstSign(descriptor, signData);
         if (score > bestScore) {
-            bestScore = score;
-            bestLabel = label;
+            secondScore = bestScore;
+            bestScore   = score;
+            bestLabel   = label;
+        } else if (score > secondScore) {
+            secondScore = score;
         }
     }
 
-    if (bestScore < NULL_ZONE_THRESHOLD) {
+    // Reject if no clear winner (margin too small between 1st and 2nd)
+    const margin = bestScore - secondScore;
+    if (bestScore < NULL_ZONE_THRESHOLD || margin < 0.04) {
         _resetSmoothing();
         return { label: null, confidence: 0, matched: false };
     }
 
     const rawConfidence = Math.round(bestScore * 100);
 
-    if (bestLabel === _lastRawLabel) {
-        _holdCount++;
+    // BUG 6 FIX: reset confirmed label when raw label changes
+    if (bestLabel !== _lastRawLabel) {
+        _holdCount      = 1;
+        _lastRawLabel   = bestLabel;
+        _confirmedLabel = null;   // ← clear old confirmed label immediately
     } else {
-        _holdCount    = 1;
-        _lastRawLabel = bestLabel;
+        _holdCount++;
     }
 
     if (_holdCount >= HOLD_FRAMES && rawConfidence >= CONFIDENCE_THRESHOLD) {
@@ -121,7 +136,7 @@ export function classifyGesture(landmarks) {
         return { label: _confirmedLabel, confidence: rawConfidence, matched: true };
     }
 
-    return { label: null, confidence: rawConfidence, matched: false };
+    return { label: bestLabel, confidence: rawConfidence, matched: false };
 }
 
 export function resetClassifier() {
@@ -135,12 +150,13 @@ function _resetSmoothing() {
 }
 
 // ─────────────────────────────────────────────────────────
-// Hand descriptor
+// Hand descriptor — all features computed once per frame
 // ─────────────────────────────────────────────────────────
 
 function computeHandDescriptor(lm) {
     const thumbState = getThumbState(lm);
 
+    // Spread: average distance of 4 fingertips from centroid of all 5 tips
     const allTips = [lm[INDEX_TIP], lm[MIDDLE_TIP], lm[RING_TIP], lm[PINKY_TIP]];
     const avgX    = (allTips.reduce((s, t) => s + t.x, 0) + lm[THUMB_TIP].x) / 5;
     const avgY    = (allTips.reduce((s, t) => s + t.y, 0) + lm[THUMB_TIP].y) / 5;
@@ -153,7 +169,6 @@ function computeHandDescriptor(lm) {
     const midCurl  = getFingerState(lm, MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP) === 0;
     const rngCurl  = getFingerState(lm, RING_TIP,   RING_PIP,   RING_MCP)   === 0;
 
-    // ── v7.0: data-driven distances ──
     const thumbToIdxTip = landmarkDistance(lm[THUMB_TIP], lm[INDEX_TIP]);
     const handScale     = landmarkDistance(lm[MIDDLE_TIP], lm[WRIST]);
 
@@ -166,20 +181,26 @@ function computeHandDescriptor(lm) {
             getFingerState(lm, PINKY_TIP,  PINKY_PIP,  PINKY_MCP),
         ],
         extras: {
+            // ── Existing tiebreakers ──
             indexHooked:           lm[INDEX_PIP].y < lm[INDEX_TIP].y && lm[INDEX_TIP].y < lm[INDEX_MCP].y,
             fingersCrossed:        Math.abs(lm[INDEX_TIP].x - lm[MIDDLE_TIP].x) < 0.03,
             indexMiddleSpread:     landmarkDistance(lm[INDEX_TIP], lm[MIDDLE_TIP]),
             thumbTipBelowIndexPIP: lm[THUMB_TIP].y > lm[INDEX_PIP].y,
             tipsClose:             spread < 0.06,
-            spread,                               // raw spread value
+            spread,
             pinkThumbOnly:         thumbExt && idxCurl && midCurl && rngCurl && pinkExt,
-
-            // v7.0: distance-based tiebreakers (mirror-safe, data-validated)
-            thumbToIdxTip,                        // raw distance, used by min/maxThumbIdxTip
+            thumbToIdxTip,
             thumbWrapped:          isThumbWrapped(lm),
             thumbBetweenFingers:   isThumbBetweenFingers(lm),
             thumbSideOfFist:       isThumbSideOfFist(lm),
-            thumbCurvedIn:         thumbToIdxTip < handScale * 0.65,  // C: 0.143 < 0.387*0.65=0.251 ✅
+            thumbCurvedIn:         thumbToIdxTip < handScale * 0.65,
+
+            // ── BUG 1 + 3 FIX: index direction ──
+            // TRUE when index finger points clearly upward (tip Y much lower than MCP Y).
+            // FALSE when index finger points sideways (tip Y ≈ MCP Y).
+            // Separates L (vertical) from G (horizontal).
+            // Separates U/V (vertical) from H (horizontal/sideways).
+            indexVertical: (lm[INDEX_MCP].y - lm[INDEX_TIP].y) > 0.08,
         },
     };
 }
@@ -197,46 +218,24 @@ function getFingerState(lm, tipIdx, pipIdx, mcpIdx) {
     return 0;                                   // curled
 }
 
-/**
- * Thumb state using Y-axis joint chain (mirror-safe).
- * MediaPipe Y increases downward.
- */
 function getThumbState(lm) {
     const tipY = lm[THUMB_TIP].y;
     const ipY  = lm[THUMB_IP].y;
     const mcpY = lm[THUMB_MCP].y;
     const cmcY = lm[THUMB_CMC].y;
-
-    // Fully extended: tip above IP and MCP
-    if (tipY < ipY && tipY < mcpY) return 2;
-
-    // Beside fist (A): tip lifted above CMC base
-    if (tipY < cmcY) return 1;
-
-    // Tucked/curled
-    return 0;
+    if (tipY < ipY && tipY < mcpY) return 2;  // fully extended
+    if (tipY < cmcY)               return 1;  // beside fist (A-position)
+    return 0;                                  // tucked/curled
 }
 
 // ─────────────────────────────────────────────────────────
-// Tiebreakers (all Y-axis / distance based — mirror-safe)
+// Tiebreaker functions — all Y/distance based, mirror-safe
 // ─────────────────────────────────────────────────────────
 
-/**
- * A: thumb beside fist — tip is displaced UP relative to fist.
- * From data: A tipΔIdxMCP = -0.084 (tip is 0.084 ABOVE index MCP).
- * N tipΔIdxMCP = -0.082, M = -0.045.
- * This alone doesn't separate well, so we use minThumbIdxTip in dictionary instead.
- */
 function isThumbSideOfFist(lm) {
-    // Tip is above CMC (thumb lifted from base) AND above INDEX_MCP (not tucked under fist)
     return lm[THUMB_TIP].y < lm[THUMB_CMC].y && lm[THUMB_TIP].y < lm[INDEX_MCP].y;
 }
 
-/**
- * S: thumb wrapped across front of fist.
- * thumbToIdxTip is small (0.063) — thumb pressed against knuckles.
- * Tip is at roughly the same Y as INDEX_MCP.
- */
 function isThumbWrapped(lm) {
     const tipAtKnuckleLevel = lm[THUMB_TIP].y >= lm[INDEX_MCP].y - 0.04;
     const notTuckedUnder    = lm[THUMB_TIP].y <  lm[INDEX_MCP].y + 0.07;
@@ -244,11 +243,6 @@ function isThumbWrapped(lm) {
     return tipAtKnuckleLevel && notTuckedUnder && aboveWrist;
 }
 
-/**
- * T: thumb between index and middle fingers.
- * Your data: between=T confirmed for T, also appears on R/U — but R/U have
- * different fingerStates so no collision.
- */
 function isThumbBetweenFingers(lm) {
     const tipY    = lm[THUMB_TIP].y;
     const tipX    = lm[THUMB_TIP].x;
@@ -263,7 +257,7 @@ function isThumbBetweenFingers(lm) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Scoring
+// Scoring — BUG 4 FIX: bent penalty raised from 0.3 → 0.5
 // ─────────────────────────────────────────────────────────
 
 function scoreAgainstSign(descriptor, signData) {
@@ -273,11 +267,15 @@ function scoreAgainstSign(descriptor, signData) {
 
     for (let i = 0; i < 5; i++) {
         if (ref[i] === 1) {
-            if (live[i] === 2)      primaryScore += 1.0;
-            else if (live[i] === 1) primaryScore += 0.7;
+            // Dictionary says extended:
+            if (live[i] === 2)      primaryScore += 1.0;  // fully extended ✓
+            else if (live[i] === 1) primaryScore += 0.7;  // partially bent ✓ (good enough)
+            else                    primaryScore += 0.0;  // curled ✗
         } else {
-            if (live[i] === 0)      primaryScore += 1.0;
-            else if (live[i] === 1) primaryScore += 0.3;
+            // Dictionary says curled:
+            if (live[i] === 0)      primaryScore += 1.0;  // curled ✓
+            else if (live[i] === 1) primaryScore += 0.5;  // slightly bent — was 0.3, now 0.5
+            else                    primaryScore += 0.0;  // extended ✗
         }
     }
 
@@ -300,13 +298,11 @@ function scoreAgainstSign(descriptor, signData) {
         if (tb.thumbCurvedIn       !== undefined) { cnt++; if (e.thumbCurvedIn           === tb.thumbCurvedIn)       bonus++; }
         if (tb.minSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       >= tb.minSpread)            bonus++; }
         if (tb.maxSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       <= tb.maxSpread)            bonus++; }
-
-        // v7.0: thumb-to-index-tip distance gates (data-driven from debug captures)
-        if (tb.minThumbIdxTip !== undefined) { cnt++; if (e.thumbToIdxTip >= tb.minThumbIdxTip) bonus++; }
-        if (tb.maxThumbIdxTip !== undefined) { cnt++; if (e.thumbToIdxTip <= tb.maxThumbIdxTip) bonus++; }
-
-        // v7.0: raw spread gate (for C vs open hand)
-        if (tb.maxRawSpread !== undefined) { cnt++; if (e.spread <= tb.maxRawSpread) bonus++; }
+        if (tb.minThumbIdxTip      !== undefined) { cnt++; if (e.thumbToIdxTip          >= tb.minThumbIdxTip)       bonus++; }
+        if (tb.maxThumbIdxTip      !== undefined) { cnt++; if (e.thumbToIdxTip          <= tb.maxThumbIdxTip)       bonus++; }
+        if (tb.maxRawSpread        !== undefined) { cnt++; if (e.spread                 <= tb.maxRawSpread)         bonus++; }
+        // BUG 1+3 FIX: new indexVertical tiebreaker
+        if (tb.indexVertical       !== undefined) { cnt++; if (e.indexVertical           === tb.indexVertical)       bonus++; }
 
         if (cnt > 0) score = score * (1 - tbW) + (bonus / cnt) * tbW;
     }
@@ -315,7 +311,7 @@ function scoreAgainstSign(descriptor, signData) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Legacy exports (backward compatibility)
+// Legacy exports (backward compatibility with m2-test.html)
 // ─────────────────────────────────────────────────────────
 
 export function detectFingerStates(lm) {
