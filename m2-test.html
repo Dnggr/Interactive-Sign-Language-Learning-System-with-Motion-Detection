@@ -3,876 +3,1112 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Pipeline Test — Manlangit</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<title>M2 Debugger v12 — Static Capture (Path 3)</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080b0e;--surface:#0f1318;--surface2:#161b22;--border:#1f2733;
+  --green:#00e5a0;--amber:#f5a623;--red:#ff5f6d;--blue:#4f9cf9;--purple:#a78bfa;
+  --text:#dde3ee;--muted:#4a5568;
+}
+body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
+  display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px;min-height:100vh}
 
-  :root {
-    --bg:        #0a0c0f;
-    --surface:   #111318;
-    --surface2:  #181c22;
-    --border:    #232830;
-    --green:     #00e5a0;
-    --green-dim: #00e5a020;
-    --amber:     #f59e0b;
-    --red:       #f87171;
-    --text:      #e8eaf0;
-    --muted:     #5a6070;
-    --mono:      'JetBrains Mono', monospace;
-    --sans:      'Syne', sans-serif;
-  }
+h1{font-size:15px;font-weight:700;color:var(--green);letter-spacing:.05em}
+p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 24px 16px 48px;
-    gap: 20px;
-  }
+.tabs{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:100%;max-width:1100px}
+.tab-btn{flex:1;padding:8px;font-family:inherit;font-size:12px;font-weight:700;
+  border:none;background:var(--surface2);color:var(--muted);cursor:pointer;letter-spacing:.05em;
+  border-right:1px solid var(--border);transition:all .12s}
+.tab-btn:last-child{border-right:none}
+.tab-btn.active{background:#00e5a018;color:var(--green);border-bottom:2px solid var(--green)}
+.tab-panel{display:none;width:100%;max-width:1100px}
+.tab-panel.active{display:flex;gap:12px;flex-wrap:wrap}
 
-  /* ── Header ── */
-  header {
-    width: 100%;
-    max-width: 900px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
-  }
-  .header-left h1 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
-  .header-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
-  .badge {
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    color: var(--muted);
-  }
-  .badge.ok  { color: var(--green); border-color: #00e5a040; background: var(--green-dim); }
-  .badge.err { color: var(--red);   border-color: #f8717140; background: #f8717110; }
+.row{display:flex;gap:12px;width:100%;max-width:1100px;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px;flex:1;min-width:280px}
 
-  /* ── Main grid ── */
-  .grid {
-    width: 100%;
-    max-width: 900px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+/* Webcam */
+.webcam-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#000;
+  border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+#webcam,#overlay,#webcam2,#overlay2,#webcam3,#overlay3{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#overlay,#overlay2,#overlay3{z-index:2;pointer-events:none}
 
-  /* ── Camera card — full width ── */
-  .card-wide { grid-column: 1 / -1; }
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
+.ctitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);margin-bottom:8px}
 
-  /* ── Card ── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .card-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-    flex-shrink: 0;
-  }
-  .dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
-  .dot.amber  { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-  .dot.red    { background: var(--red);   box-shadow: 0 0 6px var(--red);   }
-  .dot.pulse  { animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+/* ── TAB 1: LIVE CLASSIFIER ── */
+.result-box{text-align:center;padding:16px 8px;background:var(--surface2);
+  border:1px solid var(--border);border-radius:8px}
+.result-label{font-size:48px;font-weight:900;color:var(--green);letter-spacing:.05em;min-height:60px}
+.result-conf{font-size:13px;color:var(--amber);margin-top:4px}
+.result-status{font-size:11px;color:var(--muted);margin-top:2px}
 
-  /* ── Webcam + canvas ── */
-  .webcam-wrap {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16/9;
-    background: #000;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  #webcam, #overlay {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1);
-  }
-  #overlay { z-index: 2; pointer-events: none; }
+.conf-bar-wrap{width:100%;height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:6px}
+.conf-bar{height:100%;border-radius:99px;background:var(--green);transition:width .1s,background .1s;width:0%}
 
-  #cam-status {
-    position: absolute; inset: 0; z-index: 3;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 12px;
-    background: #000a;
-    transition: opacity .4s;
-  }
-  #cam-status.hidden { opacity: 0; pointer-events: none; }
-  .spinner {
-    width: 32px; height: 32px;
-    border: 2px solid var(--border);
-    border-top-color: var(--green);
-    border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #cam-status p { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+.debounce-wrap{width:100%;height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:4px}
+.debounce-bar{height:100%;border-radius:99px;background:var(--blue);width:0%;transition:width .08s}
 
-  /* ── Stats row ── */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-  }
-  .stat {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    text-align: center;
-  }
-  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
-  .stat-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); }
-  .stat-value.green { color: var(--green); }
-  .stat-value.amber { color: var(--amber); }
+.output-area{width:100%;height:80px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;color:var(--green);font-family:inherit;font-size:20px;font-weight:700;
+  padding:8px;resize:none;outline:none}
 
-  /* ── Detected sign display ── */
-  .sign-display {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    text-align: center;
-  }
-  .sign-letter {
-    font-size: 64px;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--green);
-    transition: all .15s;
-    letter-spacing: -.04em;
-  }
-  .sign-letter.no-detect { color: var(--muted); font-size: 32px; }
-  .sign-hint { font-size: 12px; color: var(--muted); margin-top: 6px; font-family: var(--mono); }
+.sign-grid{display:flex;flex-wrap:wrap;gap:5px}
+.sgbtn{padding:4px 10px;font-family:inherit;font-size:12px;border-radius:4px;
+  border:1px solid var(--border);background:var(--surface2);color:var(--muted);
+  cursor:pointer;font-weight:700;transition:all .12s}
+.sgbtn.ok{border-color:var(--green);color:var(--green);background:#00e5a012}
+.sgbtn.fail{border-color:var(--red);color:var(--red);background:#ff5f6d12}
+.sgbtn.testing{border-color:var(--amber);color:var(--amber);background:#f5a62312;animation:pulse .6s infinite alternate}
+@keyframes pulse{from{opacity:1}to{opacity:.5}}
 
-  /* ── Confidence bar ── */
-  .conf-wrap { display: flex; flex-direction: column; gap: 6px; }
-  .conf-header { display: flex; justify-content: space-between; align-items: center; }
-  .conf-label { font-size: 12px; color: var(--muted); font-family: var(--mono); }
-  .conf-pct   { font-size: 14px; font-weight: 600; font-family: var(--mono); color: var(--text); }
-  .bar-track  { height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
-  .bar-fill   {
-    height: 100%; width: 0%;
-    background: var(--green);
-    border-radius: 99px;
-    transition: width .15s ease, background .3s;
-  }
-  .bar-fill.low  { background: var(--red); }
-  .bar-fill.mid  { background: var(--amber); }
-  .bar-fill.high { background: var(--green); }
+.ctrl-row{display:flex;gap:6px}
+.btn{padding:7px 14px;font-family:inherit;font-size:12px;border-radius:5px;
+  border:1px solid var(--green);background:#00e5a018;color:var(--green);cursor:pointer;
+  font-weight:700;transition:all .15s}
+.btn:hover{background:#00e5a033}
+.btn.red{border-color:var(--red);background:#ff5f6d10;color:var(--red)}
+.btn.red:hover{background:#ff5f6d22}
+.btn.amber{border-color:var(--amber);background:#f5a62310;color:var(--amber)}
 
-  /* ── Finger state indicators ── */
-  .fingers {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    padding: 8px 0;
-  }
-  .finger {
-    display: flex; flex-direction: column;
-    align-items: center; gap: 4px;
-  }
-  .finger-bar {
-    width: 18px;
-    border-radius: 4px 4px 0 0;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    transition: height .15s, background .15s, border-color .15s;
-  }
-  .finger-bar.on {
-    background: var(--green-dim);
-    border-color: var(--green);
-    box-shadow: 0 0 8px #00e5a030;
-  }
-  .finger-name { font-size: 9px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; }
+/* ── TAB 2: RAW DEBUGGER ── */
+.sign-btns{display:flex;flex-wrap:wrap;gap:5px}
+.sbtn{padding:4px 10px;font-family:inherit;font-size:12px;border-radius:4px;
+  border:1px solid var(--border);background:var(--surface2);color:var(--muted);
+  cursor:pointer;font-weight:700;transition:all .12s}
+.sbtn:hover{border-color:var(--green);color:var(--green)}
+.sbtn.active{background:#00e5a022;border-color:var(--green);color:var(--green)}
 
-  /* ── Log panel ── */
-  .log {
-    height: 180px;
-    overflow-y: auto;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .log::-webkit-scrollbar { width: 4px; }
-  .log::-webkit-scrollbar-track { background: transparent; }
-  .log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-  .log-line {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.5;
-  }
-  .log-line .ts   { color: #333a47; margin-right: 6px; }
-  .log-line .mod  { color: var(--amber); margin-right: 4px; }
-  .log-line .ok   { color: var(--green); }
-  .log-line .err  { color: var(--red); }
-  .log-line .info { color: var(--text); }
+.raw-table{width:100%;border-collapse:collapse;font-size:11px}
+.raw-table td,.raw-table th{padding:3px 6px;border-bottom:1px solid var(--border);white-space:nowrap}
+.raw-table th{color:var(--muted);font-weight:600;font-size:10px;text-align:left}
+.raw-table .num{color:var(--amber);text-align:right;font-family:inherit}
+.raw-table .name{color:var(--text)}
+.raw-table .hi{color:var(--green);font-weight:700}
+.raw-table .lo{color:var(--red);font-weight:700}
 
-  /* ── Module status list ── */
-  .module-list { display: flex; flex-direction: column; gap: 8px; }
-  .module-row  {
-    display: flex; align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-family: var(--mono);
-    font-size: 12px;
-  }
-  .module-name { color: var(--text); }
-  .module-status {
-    font-size: 11px; padding: 2px 8px;
-    border-radius: 4px;
-    background: var(--surface);
-    color: var(--muted);
-    border: 1px solid var(--border);
-  }
-  .module-status.loaded { color: var(--green); border-color: #00e5a040; background: var(--green-dim); }
-  .module-status.loading { color: var(--amber); border-color: #f59e0b40; background: #f59e0b10; }
-  .module-status.error   { color: var(--red);   border-color: #f8717140; background: #f8717110; }
+.tb-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
+.tb-row{font-size:11px;display:flex;justify-content:space-between;padding:2px 0;
+  border-bottom:1px solid #1f273344}
+.tb-name{color:var(--muted)}
+.tb-val{font-weight:700}
+.tb-val.t{color:var(--green)}
+.tb-val.f{color:var(--red)}
+.tb-val.n{color:var(--amber)}
 
-  /* ── Text output ── */
-  #text-output {
-    width: 100%;
-    height: 72px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-family: var(--mono);
-    font-size: 18px;
-    color: var(--green);
-    resize: none;
-    outline: none;
-  }
-  #text-output::placeholder { color: var(--muted); font-size: 13px; }
+.capture-log{height:200px;overflow-y:auto;font-size:10px;line-height:1.7;
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
+.capture-log::-webkit-scrollbar{width:3px}
+.capture-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+.cl-entry{color:var(--muted);border-bottom:1px solid #1f273333;padding:2px 0}
+.cl-sign{color:var(--green);font-weight:700;margin-right:6px}
 
-  /* ── Buttons ── */
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  button {
-    padding: 7px 14px;
-    font-family: var(--mono);
-    font-size: 12px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface2);
-    color: var(--text);
-    cursor: pointer;
-    transition: border-color .15s, background .15s;
-  }
-  button:hover { border-color: var(--green); background: var(--green-dim); color: var(--green); }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  button.danger:hover { border-color: var(--red); background: #f8717110; color: var(--red); }
+.fs-display{font-size:22px;font-weight:700;color:var(--green);letter-spacing:.05em;
+  text-align:center;padding:4px 0}
+.fs-label{font-size:10px;color:var(--muted);text-align:center;margin-top:2px}
+
+.btn-capture{padding:7px 16px;font-family:inherit;font-size:12px;border-radius:5px;
+  border:1px solid var(--green);background:#00e5a018;color:var(--green);cursor:pointer;
+  font-weight:700;transition:all .15s;width:100%}
+.btn-capture:hover{background:#00e5a033}
+.btn-clear{border-color:var(--red);background:#ff5f6d10;color:var(--red)}
+.btn-clear:hover{background:#ff5f6d22}
+
+.status{font-size:11px;color:var(--muted);text-align:center;padding:4px}
+.status.ok{color:var(--green)}
+.status.err{color:var(--red)}
+
+.instr{font-size:11px;color:var(--muted);line-height:1.6;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:10px}
+.instr b{color:var(--amber)}
+
+.setting-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.setting-row input[type=range]{flex:1;accent-color:var(--green)}
+.setting-val{color:var(--amber);font-weight:700;min-width:40px}
+
+/* ── TAB 3: STATIC CAPTURE ── */
+.capture-panel.active{display:flex;gap:12px;flex-wrap:wrap}
+
+/* Per-sign progress grid */
+.sign-progress-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(68px,1fr));
+  gap:6px;
+}
+.sp-cell{
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  padding:6px 4px;text-align:center;cursor:pointer;transition:all .15s;position:relative;
+}
+.sp-cell:hover{border-color:var(--green)}
+.sp-cell.active-sign{border-color:var(--green);background:#00e5a018}
+.sp-cell.done{border-color:#00e5a055}
+.sp-cell .sp-letter{font-size:18px;font-weight:900;color:var(--text);line-height:1}
+.sp-cell .sp-count{font-size:10px;color:var(--muted);margin-top:3px}
+.sp-cell .sp-bar{height:3px;border-radius:99px;background:var(--border);margin-top:4px;overflow:hidden}
+.sp-cell .sp-fill{height:100%;border-radius:99px;background:var(--green);transition:width .2s}
+.sp-cell.done .sp-letter{color:var(--green)}
+.sp-cell.done .sp-count{color:var(--green)}
+
+/* Flash animation when capture succeeds */
+@keyframes flashCapture{0%{background:#00e5a033}100%{background:#00e5a018}}
+.sp-cell.flash{animation:flashCapture .25s ease-out}
+
+/* Big capture button */
+.big-capture-btn{
+  width:100%;padding:18px;font-family:inherit;font-size:16px;font-weight:900;
+  letter-spacing:.05em;border-radius:8px;border:2px solid var(--green);
+  background:#00e5a018;color:var(--green);cursor:pointer;transition:all .15s;
+  text-transform:uppercase;
+}
+.big-capture-btn:hover{background:#00e5a033}
+.big-capture-btn:active{background:#00e5a055;transform:scale(.98)}
+.big-capture-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Keyboard hint badge */
+.kbd{display:inline-block;padding:2px 6px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:4px;font-size:10px;color:var(--muted)}
+
+/* Capture feedback flash overlay */
+.capture-flash{
+  position:fixed;inset:0;pointer-events:none;
+  background:#00e5a0;opacity:0;z-index:9999;
+  transition:opacity .05s;
+}
+.capture-flash.flash{opacity:.08}
+
+/* Total counter strip */
+.total-strip{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:8px 12px;font-size:12px;
+}
+.total-big{font-size:28px;font-weight:900;color:var(--green)}
+.total-goal{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Recent captures mini log */
+.mini-log{height:160px;overflow-y:auto;font-size:10px;line-height:1.9;
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
+.mini-log::-webkit-scrollbar{width:3px}
+.mini-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+.ml-entry{color:var(--muted);display:flex;gap:8px}
+.ml-sign-badge{color:var(--green);font-weight:900;min-width:28px}
+.ml-ts{color:#2a3544;font-size:9px}
 </style>
 </head>
 <body>
 
-<header>
-  <div class="header-left">
-    <h1>Member 2 — Pipeline Tester</h1>
-    <p>[Manlangit]cameratracking-engine · cameraUtils + mediapipe + classifier + dictionary</p>
-  </div>
-  <span class="badge" id="overall-badge">initializing</span>
-</header>
+<!-- Screen flash on capture -->
+<div class="capture-flash" id="capture-flash"></div>
 
-<!-- Camera + canvas — full width -->
-<div class="grid" style="max-width:900px;width:100%;">
-  <div class="card card-wide">
-    <div class="card-title">
-      <span class="dot pulse" id="cam-dot"></span>
-      Live camera feed + skeleton overlay
-    </div>
+<div style="text-align:center">
+  <h1>🔬 M2 Debugger v12 — Static Capture (Path 3)</h1>
+  <p class="sub">Tab 1: live classifier · Tab 2: raw landmark inspector · Tab 3: static data capture (A–Z + ILY)</p>
+  <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
+</div>
+
+<p class="status" id="status" style="width:100%;max-width:1100px">Loading MediaPipe model…</p>
+
+<!-- ══ TABS ══ -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('classifier')">🤖 Tab 1 — Live Classifier</button>
+  <button class="tab-btn"        onclick="switchTab('rawdebug')">🔩 Tab 2 — Raw Debug</button>
+  <button class="tab-btn"        onclick="switchTab('capture')">📸 Tab 3 — Static Capture</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 1 — LIVE CLASSIFIER                                   -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-classifier">
+
+  <div class="col" style="flex:2;min-width:340px">
     <div class="webcam-wrap">
       <video id="webcam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
-      <div id="cam-status">
-        <div class="spinner"></div>
-        <p id="cam-status-text">Starting camera...</p>
-      </div>
     </div>
-    <div class="stats-row">
-      <div class="stat">
-        <div class="stat-label">FPS</div>
-        <div class="stat-value" id="fps-val">—</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Hands detected</div>
-        <div class="stat-value amber" id="hands-val">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Model</div>
-        <div class="stat-value" id="model-val" style="font-size:13px;">loading</div>
+
+    <div class="result-box">
+      <div class="result-label" id="res-label">—</div>
+      <div class="result-conf"  id="res-conf">Confidence: —</div>
+      <div class="conf-bar-wrap"><div class="conf-bar" id="conf-bar"></div></div>
+      <div style="margin-top:6px;font-size:10px;color:var(--muted)">Debounce hold progress</div>
+      <div class="debounce-wrap"><div class="debounce-bar" id="debounce-bar"></div></div>
+      <div class="result-status" id="res-status">Waiting for hand…</div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Output text (auto-appends on hold)</div>
+      <textarea class="output-area" id="output-text" readonly placeholder="Hold a sign for 1.5s to register…"></textarea>
+      <div class="ctrl-row" style="margin-top:6px">
+        <button class="btn" onclick="document.getElementById('output-text').value=''">Clear output</button>
+        <button class="btn amber" onclick="toggleLock()" id="lock-btn">⏸ Pause detection</button>
       </div>
     </div>
   </div>
 
-  <!-- Detected sign -->
-  <div class="card">
-    <div class="card-title"><span class="dot" id="sign-dot"></span>Detected sign</div>
-    <div class="sign-display">
-      <div class="sign-letter no-detect" id="sign-letter">—</div>
-      <div class="sign-hint" id="sign-hint">No hand detected</div>
-    </div>
-    <div class="conf-wrap">
-      <div class="conf-header">
-        <span class="conf-label">Confidence</span>
-        <span class="conf-pct" id="conf-pct">0%</span>
+  <div class="col" style="flex:1;min-width:260px">
+    <div class="card">
+      <div class="ctitle">Detection settings</div>
+      <div class="setting-row">
+        <span>Hold time</span>
+        <input type="range" id="hold-slider" min="10" max="60" value="24" oninput="updateHoldTime(this.value)">
+        <span class="setting-val" id="hold-val">24 frames</span>
       </div>
-      <div class="bar-track"><div class="bar-fill" id="conf-bar"></div></div>
-    </div>
-    <div class="btn-row">
-      <button id="clear-btn" class="danger">Clear output</button>
-      <button id="stop-btn">Stop camera</button>
-    </div>
-  </div>
-
-  <!-- Finger states -->
-  <div class="card">
-    <div class="card-title"><span class="dot" id="finger-dot"></span>Finger states (live)</div>
-    <div class="fingers" id="fingers-display">
-      <div class="finger">
-        <div class="finger-bar" id="f-thumb"  style="height:48px;"></div>
-        <div class="finger-name">Thumb</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">24 frames ≈ 0.8s · 45 = 1.5s · 60 = 2s</div>
+      <div style="margin-top:8px" class="setting-row">
+        <span>Cooldown</span>
+        <input type="range" id="cool-slider" min="10" max="90" value="30" oninput="updateCooldown(this.value)">
+        <span class="setting-val" id="cool-val">30 frames</span>
       </div>
-      <div class="finger">
-        <div class="finger-bar" id="f-index"  style="height:64px;"></div>
-        <div class="finger-name">Index</div>
-      </div>
-      <div class="finger">
-        <div class="finger-bar" id="f-middle" style="height:72px;"></div>
-        <div class="finger-name">Mid</div>
-      </div>
-      <div class="finger">
-        <div class="finger-bar" id="f-ring"   style="height:64px;"></div>
-        <div class="finger-name">Ring</div>
-      </div>
-      <div class="finger">
-        <div class="finger-bar" id="f-pinky"  style="height:52px;"></div>
-        <div class="finger-name">Pinky</div>
-      </div>
-    </div>
-    <div style="font-size:11px;color:var(--muted);font-family:var(--mono);text-align:center;margin-top:-4px;">
-      Green = extended · Gray = folded
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">30 frames ≈ 1s cooldown after each registered sign</div>
     </div>
 
-    <!-- Text output -->
-    <div class="card-title" style="margin-top:4px;"><span class="dot green"></span>Text output (1.5s hold)</div>
-    <textarea id="text-output" readonly placeholder="Hold a sign steady for 1.5s to register it here..."></textarea>
-  </div>
-
-  <!-- Module status -->
-  <div class="card">
-    <div class="card-title"><span class="dot amber pulse"></span>Module status</div>
-    <div class="module-list">
-      <div class="module-row">
-        <span class="module-name">cameraUtils.js</span>
-        <span class="module-status" id="status-camera">waiting</span>
+    <div class="card">
+      <div class="ctitle">Sign test board — click a sign to test it</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
+        Make the sign → if classifier detects it → button turns green.<br>Red = wrong sign detected.
       </div>
-      <div class="module-row">
-        <span class="module-name">mediapipe.js</span>
-        <span class="module-status" id="status-mediapipe">waiting</span>
-      </div>
-      <div class="module-row">
-        <span class="module-name">classifier.js</span>
-        <span class="module-status" id="status-classifier">waiting</span>
-      </div>
-      <div class="module-row">
-        <span class="module-name">dictionary.js</span>
-        <span class="module-status" id="status-dictionary">waiting</span>
+      <div class="sign-grid" id="sign-grid"></div>
+      <div class="ctrl-row" style="margin-top:8px">
+        <button class="btn" onclick="resetSignBoard()">Reset board</button>
       </div>
     </div>
-  </div>
 
-  <!-- Dev log — full width -->
-  <div class="card card-wide">
-    <div class="card-title"><span class="dot"></span>Console log</div>
-    <div class="log" id="log"></div>
+    <div class="card">
+      <div class="ctitle">Live finger states from classifier</div>
+      <div class="fs-display" id="live-fs">—</div>
+      <div class="fs-label">[thumb, index, middle, ring, pinky] · 2=extended 1=bent 0=curled</div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Detection log (last 8)</div>
+      <div id="det-log" style="font-size:10px;color:var(--muted);line-height:1.8"></div>
+    </div>
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 2 — RAW DEBUGGER                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-rawdebug">
+
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam2" autoplay playsinline muted></video>
+      <canvas id="overlay2"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Which sign are you testing?</div>
+      <div class="sign-btns" id="sign-btns"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Detected finger states (raw — 0/1/2)</div>
+      <div class="fs-display" id="fs-display2">—</div>
+      <div class="fs-label">[thumb, index, middle, ring, pinky] — 2=extended 1=bent 0=curled</div>
+    </div>
+  </div>
+
+  <div class="col" style="flex:1.5;min-width:280px">
+    <div class="card">
+      <div class="ctitle">Raw Y values — key landmarks</div>
+      <table class="raw-table">
+        <thead><tr><th>Landmark</th><th>Y (raw)</th><th>X (raw)</th></tr></thead>
+        <tbody id="lm-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Computed tiebreakers — synced to classifier v11</div>
+      <div class="tb-grid" id="tb-grid"></div>
+    </div>
+  </div>
+
+  <div class="col" style="flex:1.2;min-width:260px">
+    <div class="instr">
+      <b>HOW TO USE:</b><br>
+      1. Select a sign button above.<br>
+      2. Hold that sign clearly in frame.<br>
+      3. Click <b>📸 Capture snapshot</b>.<br>
+      4. Do this for A, C, S, T, N, E, M.<br><br>
+      The log shows you the <b>exact tiebreaker values</b> for your real hand.<br><br>
+      <b>v11 FIXES in Tab 2:</b><br>
+      • handScale = WRIST→MIDDLE_TIP (matches classifier)<br>
+      • thumbSideOfFist uses correct landmarks (CMC+MCP, not PIP+MCP)<br>
+      • thumbWrapped uses normalized distances<br>
+      • tipsClose uses normalized formula (spread/handScale &lt; 0.38)<br>
+      • thumbNorm column now shown
+    </div>
+
+    <button class="btn-capture" id="capture-btn">📸 Capture snapshot for [A]</button>
+    <button class="btn-capture btn-clear" id="clear-log-btn" style="margin-top:4px">🗑 Clear log</button>
+
+    <div class="card" style="flex:1">
+      <div class="ctitle">Capture log — copy and share</div>
+      <div class="capture-log" id="capture-log">Hold a sign and press capture…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 3 — STATIC CAPTURE (PATH 3)                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-capture">
+
+  <!-- Left: webcam + big capture button -->
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam3" autoplay playsinline muted></video>
+      <canvas id="overlay3"></canvas>
+    </div>
+
+    <!-- Currently selected sign indicator -->
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:11px;color:var(--muted)">Currently capturing</div>
+      <div id="active-sign-display" style="font-size:56px;font-weight:900;color:var(--green);
+           line-height:1.1;letter-spacing:.05em">A</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        Click a letter in the grid → then capture
+      </div>
+    </div>
+
+    <!-- BIG CAPTURE BUTTON -->
+    <button class="big-capture-btn" id="btn-static-capture" onclick="captureStatic()">
+      📸 &nbsp;CAPTURE &nbsp;<span class="kbd">SPACE</span>
+    </button>
+
+    <!-- Total counter -->
+    <div class="total-strip">
+      <div>
+        <div class="total-big" id="total-count">0</div>
+        <div class="total-goal">total snapshots</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--amber);font-weight:700" id="active-sign-count-strip">
+          A: 0 / 150
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">
+          Goal: 150 per sign × 26 signs = 3,900
+        </div>
+      </div>
+    </div>
+
+    <!-- Export / clear -->
+    <div style="display:flex;gap:8px">
+      <button class="btn-capture" style="flex:2" onclick="exportStaticJSON()">
+        ⬇ Export static_data.json
+      </button>
+      <button class="btn-capture btn-clear" style="flex:1" onclick="clearStaticData()">
+        🗑 Clear all
+      </button>
+    </div>
+
+    <!-- Recent captures mini log -->
+    <div class="card">
+      <div class="ctitle">Recent captures</div>
+      <div class="mini-log" id="mini-log">No captures yet — show your hand and press Space…</div>
+    </div>
+  </div>
+
+  <!-- Right: sign progress grid + instructions -->
+  <div class="col" style="flex:1.4;min-width:280px">
+
+    <div class="instr">
+      <b>HOW TO CAPTURE (Path 3 — Static Model Training):</b><br><br>
+      1. Click a letter in the grid below to select it.<br>
+      2. Hold that ASL handshape in front of the camera.<br>
+      3. Press <b>Space</b> (or the Capture button) once per snapshot.<br>
+      4. Aim for <b>150 captures per sign</b> with variation:<br>
+         &nbsp;• Move hand left / right / closer / farther<br>
+         &nbsp;• Tilt wrist slightly each shot<br>
+         &nbsp;• Don't always hold the same position<br><br>
+      <b>J and Z are motion signs</b> — skip them here.<br>
+      <b>ILY</b> = I Love You (thumb + index + pinky).<br><br>
+      After capturing: click <b>Export static_data.json</b>.<br>
+      All 4 team members export their own file, then merge.
+    </div>
+
+    <!-- Per-sign progress grid -->
+    <div class="card">
+      <div class="ctitle">Sign progress — click to select</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Green border = selected &nbsp;|&nbsp; Bar fills toward 150 target
+      </div>
+      <div class="sign-progress-grid" id="sign-progress-grid"></div>
+    </div>
+
+    <!-- Per-sign counts table -->
+    <div class="card">
+      <div class="ctitle">Count per sign</div>
+      <div id="count-table" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;font-size:11px"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SCRIPT                                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
 <script type="module">
-// ══════════════════════════════════════════════════════════════
-// INLINE IMPLEMENTATIONS
-// These match exactly what is in your 4 files.
-// When your repo is set up, replace these with:
-//   import { startCamera, stopCamera } from './js/camera/cameraUtils.js';
-//   import { initMediaPipe, processFrame } from './js/tracking/mediapipe.js';
-//   import { classifyGesture, detectFingerStates } from './js/engine/classifier.js';
-//   import { SIGN_DICTIONARY } from './js/engine/dictionary.js';
-// ══════════════════════════════════════════════════════════════
+import { HandLandmarker, FilesetResolver }
+  from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
+import { classifyGesture, detectFingerStates, landmarkDistance, resetClassifier }
+  from './js/engine/classifier.js';
+import { SIGN_DICTIONARY, getSignsByCategory, getActiveSigns }
+  from './js/engine/dictionary.js';
 
-// ── LOG ──
-function log(module, msg, type = 'info') {
-  const el = document.getElementById('log');
-  const now = new Date();
-  const ts  = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
-  const line = document.createElement('div');
-  line.className = 'log-line';
-  line.innerHTML = `<span class="ts">${ts}</span><span class="mod">[${module}]</span><span class="${type}">${msg}</span>`;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-  console.log(`[${module}] ${msg}`);
-}
+// ── Constants ──
+const WRIST=0,THUMB_CMC=1,THUMB_MCP=2,THUMB_IP=3,THUMB_TIP=4,
+      INDEX_MCP=5,INDEX_PIP=6,INDEX_DIP=7,INDEX_TIP=8,
+      MIDDLE_MCP=9,MIDDLE_PIP=10,MIDDLE_TIP=12,
+      RING_MCP=13,RING_PIP=14,RING_TIP=16,
+      PINKY_MCP=17,PINKY_PIP=18,PINKY_TIP=20;
 
-function setStatus(id, text, cls) {
-  const el = document.getElementById(id);
-  el.textContent = text;
-  el.className   = 'module-status ' + cls;
-}
+const LM_NAMES={[WRIST]:'WRIST',[THUMB_CMC]:'THUMB_CMC',[THUMB_MCP]:'THUMB_MCP',
+  [THUMB_IP]:'THUMB_IP',[THUMB_TIP]:'THUMB_TIP',
+  [INDEX_MCP]:'INDEX_MCP',[INDEX_PIP]:'INDEX_PIP',[INDEX_TIP]:'INDEX_TIP',
+  [MIDDLE_MCP]:'MID_MCP',[MIDDLE_PIP]:'MID_PIP',[MIDDLE_TIP]:'MID_TIP'};
+const KEY_LM=[WRIST,THUMB_CMC,THUMB_MCP,THUMB_IP,THUMB_TIP,
+              INDEX_MCP,INDEX_PIP,INDEX_TIP,MIDDLE_MCP,MIDDLE_PIP,MIDDLE_TIP];
 
-// ── DICTIONARY (inline copy of dictionary.js) ──
-const SIGN_DICTIONARY = {
-  'A': { fingerStates:[1,0,0,0,0], description:'Fist, thumb beside fingers', category:'alphabet' },
-  'B': { fingerStates:[0,1,1,1,1], description:'Four fingers up, thumb tucked', category:'alphabet' },
-  'C': { fingerStates:[1,1,1,1,1], description:'All fingers curved into C', category:'alphabet' },
-  'D': { fingerStates:[0,1,0,0,0], description:'Index up, others circle', category:'alphabet' },
-  'E': { fingerStates:[0,0,0,0,0], description:'All fingers curl down', category:'alphabet' },
-  'F': { fingerStates:[1,0,1,1,1], description:'Index+thumb circle, others up', category:'alphabet' },
-  'G': { fingerStates:[1,1,0,0,0], description:'Index+thumb point sideways', category:'alphabet' },
-  'H': { fingerStates:[0,1,1,0,0], description:'Index+middle together sideways', category:'alphabet' },
-  'I': { fingerStates:[0,0,0,0,1], description:'Only pinky extended', category:'alphabet' },
-  'J': { fingerStates:[0,0,0,0,1], description:'Pinky up, draw J', category:'alphabet' },
-  'K': { fingerStates:[1,1,1,0,0], description:'Index+middle+thumb up', category:'alphabet' },
-  'L': { fingerStates:[1,1,0,0,0], description:'L shape: thumb+index', category:'alphabet' },
-  'M': { fingerStates:[0,0,0,0,0], description:'Three fingers over thumb', category:'alphabet' },
-  'N': { fingerStates:[0,0,0,0,0], description:'Two fingers over thumb', category:'alphabet' },
-  'O': { fingerStates:[1,1,1,1,1], description:'All tips touch forming O', category:'alphabet' },
-  'P': { fingerStates:[1,1,1,0,0], description:'Like K, pointed down', category:'alphabet' },
-  'Q': { fingerStates:[1,1,0,0,0], description:'Like G, pointed down', category:'alphabet' },
-  'R': { fingerStates:[0,1,1,0,0], description:'Index+middle crossed', category:'alphabet' },
-  'S': { fingerStates:[0,0,0,0,0], description:'Fist, thumb over fingers', category:'alphabet' },
-  'T': { fingerStates:[1,0,0,0,0], description:'Thumb between index+middle', category:'alphabet' },
-  'U': { fingerStates:[0,1,1,0,0], description:'Index+middle up together', category:'alphabet' },
-  'V': { fingerStates:[0,1,1,0,0], description:'Index+middle V spread', category:'alphabet' },
-  'W': { fingerStates:[0,1,1,1,0], description:'Three fingers spread', category:'alphabet' },
-  'X': { fingerStates:[0,1,0,0,0], description:'Index hooked/bent', category:'alphabet' },
-  'Y': { fingerStates:[1,0,0,0,1], description:'Thumb+pinky extended (hang loose)', category:'alphabet' },
-  'Z': { fingerStates:[0,1,0,0,0], description:'Index draws Z in air', category:'alphabet' },
-  'HELLO':      { fingerStates:[1,1,1,1,1], description:'Open hand wave from forehead', category:'word' },
-  'THANK YOU':  { fingerStates:[1,1,1,1,1], description:'Flat hand from chin forward', category:'word' },
-  'PLEASE':     { fingerStates:[1,1,1,1,1], description:'Open hand circular on chest', category:'word' },
-  'SORRY':      { fingerStates:[0,0,0,0,0], description:'Fist circular on chest', category:'word' },
-  'YES':        { fingerStates:[0,0,0,0,0], description:'Fist nods forward', category:'word' },
-  'NO':         { fingerStates:[0,1,1,0,0], description:'Index+middle snap down', category:'word' },
-  'HELP':       { fingerStates:[1,0,0,0,0], description:'Thumb-up lifted by other hand', category:'word' },
-  'I LOVE YOU': { fingerStates:[1,1,0,0,1], description:'ILY: thumb+index+pinky out', category:'word' },
-  'WATER':      { fingerStates:[0,1,1,1,0], description:'W shape, tap chin', category:'word' },
-  'FOOD':       { fingerStates:[1,1,1,1,1], description:'Pinched fingers to lips', category:'word' },
-  'GOODBYE':    { fingerStates:[0,1,1,1,1], description:'Fingers wave down repeatedly', category:'word' },
-  'SPACE':      { fingerStates:[1,1,1,1,1], description:'Open flat hand → insert space', category:'control' },
-  'BACKSPACE':  { fingerStates:[0,0,0,0,0], description:'Closed fist → delete character', category:'control' },
+const SIGNS=['A','E','M','N','S','T','C','O','B','D','F','G','H','I','K','L','P','Q','R','U','V','W','X','Y'];
+
+// ── STATIC CAPTURE SIGNS (Path 3) ──
+// J and Z omitted — motion signs, captured separately
+const STATIC_SIGNS = [
+  'A','B','C','D','E','F','G','H','I','K',
+  'L','M','N','O','P','Q','R','S','T','U',
+  'V','W','X','Y','ILY'
+];
+const CAPTURE_TARGET = 150;  // target captures per sign
+
+// ── State ──
+let handLandmarker=null, lastVideoTime=-1, lastLM=null;
+let paused=false;
+let holdFrames=24, cooldownFrames=30;
+let holdCount=0, coolCount=0, lastRaw=null;
+let outputLocked=false;
+let selectedSign='A';
+let testingSign=null;
+let detLog=[];
+
+// ── Static capture state ──
+let activeStaticSign = 'A';
+let staticCaptures   = [];   // Array of { label, landmarks: [63 numbers] }
+let recentLog        = [];   // For mini-log display
+
+// ── Tab switching ──
+window.switchTab=function(name){
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>{
+    b.classList.toggle('active', ['classifier','rawdebug','capture'][i]===name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p=>{
+    p.classList.toggle('active',p.id==='panel-'+name);
+  });
 };
 
-// ── CLASSIFIER (inline copy of classifier.js) ──
-const WRIST=0,THUMB_MCP=2,THUMB_TIP=4,INDEX_MCP=5,INDEX_TIP=8,
-      MIDDLE_MCP=9,MIDDLE_TIP=12,RING_MCP=13,RING_TIP=16,PINKY_MCP=17,PINKY_TIP=20;
-const CONFIDENCE_THRESHOLD = 75;
+// ── Init ──
+async function init(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia(
+      {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});
 
-function isFingerExtended(lm, tipIdx, mcpIdx) {
-  return lm[tipIdx].y < lm[mcpIdx].y ? 1 : 0;
-}
-function isThumbExtended(lm) {
-  const tipDist = Math.abs(lm[THUMB_TIP].x - lm[WRIST].x);
-  const mcpDist = Math.abs(lm[THUMB_MCP].x - lm[WRIST].x);
-  return tipDist > mcpDist * 1.3 ? 1 : 0;
-}
-function detectFingerStates(lm) {
-  return [
-    isThumbExtended(lm),
-    isFingerExtended(lm, INDEX_TIP,  INDEX_MCP),
-    isFingerExtended(lm, MIDDLE_TIP, MIDDLE_MCP),
-    isFingerExtended(lm, RING_TIP,   RING_MCP),
-    isFingerExtended(lm, PINKY_TIP,  PINKY_MCP),
-  ];
-}
-function compareFingerStates(live, ref) {
-  if (!ref || live.length !== ref.length) return 0;
-  let m = 0;
-  for (let i = 0; i < live.length; i++) if (live[i] === ref[i]) m++;
-  return m / live.length;
-}
-function classifyGesture(landmarks) {
-  if (!landmarks || landmarks.length < 21)
-    return { label: null, confidence: 0, matched: false };
-  const fs = detectFingerStates(landmarks);
-  let bestLabel = null, bestScore = 0;
-  for (const [label, data] of Object.entries(SIGN_DICTIONARY)) {
-    const s = compareFingerStates(fs, data.fingerStates);
-    if (s > bestScore) { bestScore = s; bestLabel = label; }
-  }
-  const confidence = Math.round(bestScore * 100);
-  return { label: confidence >= CONFIDENCE_THRESHOLD ? bestLabel : null, confidence, matched: confidence >= CONFIDENCE_THRESHOLD };
-}
+    const v1=document.getElementById('webcam');
+    const v2=document.getElementById('webcam2');
+    const v3=document.getElementById('webcam3');
+    v1.srcObject=stream;
+    v2.srcObject=stream;
+    v3.srcObject=stream;
 
-// ── RENDERER (inline, matches renderer.js spec) ──
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [0,9],[9,10],[10,11],[11,12],
-  [0,13],[13,14],[14,15],[15,16],
-  [0,17],[17,18],[18,19],[19,20],
-  [5,9],[9,13],[13,17],
-];
-function drawSkeleton(ctx, handsLandmarks, w, h) {
-  ctx.clearRect(0, 0, w, h);
-  if (!handsLandmarks || handsLandmarks.length === 0) return;
-  for (const lm of handsLandmarks) {
-    ctx.strokeStyle = '#FFFFFF55';
-    ctx.lineWidth   = 2;
-    ctx.lineCap     = 'round';
-    for (const [a, b] of HAND_CONNECTIONS) {
-      ctx.beginPath();
-      ctx.moveTo(lm[a].x * w, lm[a].y * h);
-      ctx.lineTo(lm[b].x * w, lm[b].y * h);
-      ctx.stroke();
-    }
-    for (let i = 0; i < lm.length; i++) {
-      const isTip = [4,8,12,16,20].includes(i);
-      ctx.beginPath();
-      ctx.arc(lm[i].x * w, lm[i].y * h, isTip ? 6 : 4, 0, Math.PI * 2);
-      ctx.fillStyle = i === 0 ? '#f59e0b' : (isTip ? '#ffffff' : '#00e5a0');
-      ctx.fill();
-    }
-  }
-}
+    await new Promise(r=>{v1.onloadedmetadata=()=>v1.play().then(r);});
+    v2.play();
+    v3.play();
 
-// ── MEDIAPIPE LOADER ──
-// FLICKER FIX (v1.1): added ghost frame persistence + raised confidence thresholds
-let handLandmarker = null;
-let lastVideoTime  = -1;
+    const c1=document.getElementById('overlay');
+    const c2=document.getElementById('overlay2');
+    const c3=document.getElementById('overlay3');
+    c1.width=c2.width=c3.width=v1.videoWidth;
+    c1.height=c2.height=c3.height=v1.videoHeight;
 
-// How many consecutive empty frames to tolerate before clearing landmarks.
-// At 30fps, 5 frames ≈ 167ms — smooths brief occlusions without feeling "sticky".
-const GHOST_FRAMES = 5;
-let ghostCounter       = 0;
-let lastGoodLandmarks  = null;
-let lastGoodHandedness = null;
-let lastGoodDominant   = null;
-
-async function initMediaPipe() {
-  setStatus('status-mediapipe', 'loading...', 'loading');
-  log('mediapipe', 'Fetching HandLandmarker model from CDN (~8MB)...', 'info');
-  try {
-    const { HandLandmarker, FilesetResolver } = await import(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm'
-    );
-    const vision = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-    );
-    handLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numHands: 2,
-      // FLICKER FIX: raised from 0.5 → 0.7 / 0.7 / 0.6
-      // Lower values caused MediaPipe to drop and re-acquire the hand every few frames,
-      // producing the flickering "hands: 1 → 0 → 1 → 0" pattern on the counter.
-      minHandDetectionConfidence: 0.7,
-      minHandPresenceConfidence:  0.7,
-      minTrackingConfidence:      0.6,
+    setStatus('Loading HandLandmarker model…','');
+    const vis=await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+    handLandmarker=await HandLandmarker.createFromOptions(vis,{
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate:'GPU'},
+      runningMode:'VIDEO',numHands:2,
+      minHandDetectionConfidence:0.7,
+      minHandPresenceConfidence:0.7,
+      minTrackingConfidence:0.6,
     });
-    setStatus('status-mediapipe', 'loaded ✓', 'loaded');
-    document.getElementById('model-val').textContent = 'ready';
-    document.getElementById('model-val').style.color = 'var(--green)';
-    log('mediapipe', 'HandLandmarker model ready.', 'ok');
-    return true;
-  } catch (e) {
-    setStatus('status-mediapipe', 'error', 'error');
-    log('mediapipe', 'Failed to load model: ' + e.message, 'err');
-    return false;
+    setStatus('✅ Ready — show your hand','ok');
+    buildSignGrid();
+    buildSignButtons();
+    buildSignProgressGrid();
+    requestAnimationFrame(loop);
+  }catch(e){
+    setStatus('❌ '+e.message,'err');
   }
 }
 
-function processFrame(videoEl) {
-  if (!handLandmarker) return { landmarks: [], handedness: [], dominantLandmarks: null };
-
-  // Same frame as last time — return last good data instead of empty arrays.
-  // Previously returned empty arrays, which caused the hand counter to flash 0
-  // on every duplicate/skipped frame.
-  if (videoEl.currentTime === lastVideoTime) {
-    return {
-      landmarks:         lastGoodLandmarks  ?? [],
-      handedness:        lastGoodHandedness ?? [],
-      dominantLandmarks: lastGoodDominant,
-    };
-  }
-  lastVideoTime = videoEl.currentTime;
-
-  const result     = handLandmarker.detectForVideo(videoEl, performance.now());
-  const landmarks  = result.landmarks  ?? [];
-  const handedness = result.handedness ?? [];
-
-  if (landmarks.length > 0) {
-    // Hand found — reset ghost counter and cache
-    ghostCounter       = 0;
-    lastGoodLandmarks  = landmarks;
-    lastGoodHandedness = handedness;
-
-    // Pick dominant (right) hand — MediaPipe reports "Left" for user's right (mirrored webcam)
-    lastGoodDominant = null;
-    if (landmarks.length === 1) {
-      lastGoodDominant = landmarks[0];
-    } else {
-      for (let i = 0; i < handedness.length; i++) {
-        const cat = handedness[i]?.[0]?.categoryName ?? '';
-        if (cat === 'Left') { lastGoodDominant = landmarks[i]; break; }
-      }
-      if (!lastGoodDominant) lastGoodDominant = landmarks[0];
-    }
-
-    return { landmarks, handedness, dominantLandmarks: lastGoodDominant };
-  }
-
-  // FLICKER FIX: no hand detected this frame.
-  // Increment ghost counter. If within tolerance, return last known data.
-  // This hides brief 1–5 frame dropout gaps from the rest of the pipeline.
-  ghostCounter++;
-  if (ghostCounter <= GHOST_FRAMES && lastGoodLandmarks) {
-    return {
-      landmarks:         lastGoodLandmarks,
-      handedness:        lastGoodHandedness,
-      dominantLandmarks: lastGoodDominant,
-    };
-  }
-
-  // Hand is truly gone — clear cached state
-  lastGoodLandmarks  = null;
-  lastGoodHandedness = null;
-  lastGoodDominant   = null;
-  return { landmarks: [], handedness: [], dominantLandmarks: null };
+function setStatus(msg,cls){
+  const el=document.getElementById('status');
+  el.textContent=msg;el.className='status'+(cls?' '+cls:'');
 }
 
-// ── CAMERA ──
-async function startCamera(videoEl, canvasEl) {
-  setStatus('status-camera', 'requesting...', 'loading');
-  log('cameraUtils', 'Requesting webcam permission...', 'info');
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-    audio: false,
-  });
-  videoEl.srcObject = stream;
-  await new Promise((res, rej) => {
-    videoEl.onloadedmetadata = () => videoEl.play().then(() => {
-      canvasEl.width  = videoEl.videoWidth;
-      canvasEl.height = videoEl.videoHeight;
-      res();
-    }).catch(rej);
-    videoEl.onerror = rej;
-  });
-  setStatus('status-camera', 'streaming ✓', 'loaded');
-  log('cameraUtils', `Camera ready: ${videoEl.videoWidth}x${videoEl.videoHeight}`, 'ok');
+function pickDominantHand(landmarks, handedness){
+  if(!landmarks||landmarks.length===0) return null;
+  if(landmarks.length===1) return landmarks[0];
+  for(let i=0;i<(handedness||[]).length;i++){
+    const cat=(handedness[i]?.[0]?.categoryName)||(handedness[i]?.categoryName)||'';
+    if(cat==='Left') return landmarks[i];
+  }
+  return landmarks[0];
 }
 
-// ── DEBOUNCE STATE ──
-let holdStart   = null;
-let inCooldown  = false;
-const HOLD_MS   = 1500;
-const COOL_MS   = 1000;
+// ── Main loop ──
+function loop(){
+  if(!handLandmarker){requestAnimationFrame(loop);return;}
+  const v1=document.getElementById('webcam');
+  if(v1.currentTime!==lastVideoTime){
+    lastVideoTime=v1.currentTime;
+    const r=handLandmarker.detectForVideo(v1,performance.now());
 
-function handleDebounce(result) {
-  if (inCooldown || !result.matched) { holdStart = null; return; }
-  if (!holdStart) { holdStart = Date.now(); return; }
-  if (Date.now() - holdStart >= HOLD_MS) {
-    const ta = document.getElementById('text-output');
-    if (result.label === 'BACKSPACE') {
-      ta.value = ta.value.slice(0, -1);
-    } else if (result.label === 'SPACE') {
-      ta.value += ' ';
-    } else {
-      ta.value += result.label.length === 1 ? result.label : result.label + ' ';
-    }
-    ta.scrollTop = ta.scrollHeight;
-    holdStart = null;
-    inCooldown = true;
-    setTimeout(() => { inCooldown = false; }, COOL_MS);
-    log('feedback', `Registered: "${result.label}" (${result.confidence}%)`, 'ok');
-  }
-}
-
-// ── MAIN ──
-const videoEl  = document.getElementById('webcam');
-const canvasEl = document.getElementById('overlay');
-const ctx      = canvasEl.getContext('2d');
-
-setStatus('status-classifier', 'loaded ✓', 'loaded');
-setStatus('status-dictionary', `loaded ✓ (${Object.keys(SIGN_DICTIONARY).length} signs)`, 'loaded');
-log('classifier', 'Module ready.', 'ok');
-log('dictionary', `${Object.keys(SIGN_DICTIONARY).length} signs loaded (A–Z + words + phrases).`, 'ok');
-
-let frameCount = 0, lastFpsTime = Date.now();
-
-async function main() {
-  // Start camera
-  try {
-    await startCamera(videoEl, canvasEl);
-    document.getElementById('cam-dot').classList.add('green');
-    document.getElementById('cam-dot').classList.remove('pulse');
-  } catch (e) {
-    log('cameraUtils', 'Camera error: ' + e.message, 'err');
-    setStatus('status-camera', 'error', 'error');
-    document.getElementById('cam-status-text').textContent = '⚠️ ' + e.message;
-    document.getElementById('overall-badge').textContent = 'camera error';
-    document.getElementById('overall-badge').className = 'badge err';
-    return;
-  }
-
-  // Load MediaPipe
-  const modelOk = await initMediaPipe();
-  if (!modelOk) {
-    document.getElementById('cam-status-text').textContent = '⚠️ Failed to load AI model. Check console.';
-    document.getElementById('overall-badge').textContent = 'model error';
-    document.getElementById('overall-badge').className = 'badge err';
-    return;
-  }
-
-  // Hide loading overlay
-  document.getElementById('cam-status').classList.add('hidden');
-  document.getElementById('overall-badge').textContent = 'all systems go';
-  document.getElementById('overall-badge').className = 'badge ok';
-  log('app', 'All modules loaded. Detection loop started.', 'ok');
-
-  // Detection loop
-  function loop() {
-    const { landmarks, dominantLandmarks } = processFrame(videoEl);
-
-    // FPS counter
-    frameCount++;
-    const now = Date.now();
-    if (now - lastFpsTime >= 1000) {
-      document.getElementById('fps-val').textContent = frameCount;
-      frameCount = 0;
-      lastFpsTime = now;
-    }
-
-    // Draw skeleton
-    drawSkeleton(ctx, landmarks, canvasEl.width, canvasEl.height);
-
-    // Update hand count
-    document.getElementById('hands-val').textContent = landmarks.length;
-
-    if (dominantLandmarks) {
-      // Classify
-      const result = classifyGesture(dominantLandmarks);
-      const fs     = detectFingerStates(dominantLandmarks);
-
-      // Update finger indicators
-      const names = ['thumb','index','middle','ring','pinky'];
-      const heights = [48, 64, 72, 64, 52];
-      names.forEach((n, i) => {
-        const el = document.getElementById('f-' + n);
-        el.style.height = heights[i] + 'px';
-        el.classList.toggle('on', fs[i] === 1);
+    if(r.landmarks&&r.landmarks.length>0){
+      const c1=document.getElementById('overlay');
+      const c2=document.getElementById('overlay2');
+      const c3=document.getElementById('overlay3');
+      const ctx1=c1.getContext('2d'); ctx1.clearRect(0,0,c1.width,c1.height);
+      const ctx2=c2.getContext('2d'); ctx2.clearRect(0,0,c2.width,c2.height);
+      const ctx3=c3.getContext('2d'); ctx3.clearRect(0,0,c3.width,c3.height);
+      r.landmarks.forEach(lm=>{
+        drawSkeletonOnCtx(ctx1,lm,c1.width,c1.height);
+        drawSkeletonOnCtx(ctx2,lm,c2.width,c2.height);
+        drawSkeletonOnCtx(ctx3,lm,c3.width,c3.height);
       });
 
-      // Update confidence bar
-      const bar   = document.getElementById('conf-bar');
-      const pctEl = document.getElementById('conf-pct');
-      bar.style.width = result.confidence + '%';
-      pctEl.textContent = result.confidence + '%';
-      bar.className = 'bar-fill ' +
-        (result.confidence >= 75 ? 'high' : result.confidence >= 50 ? 'mid' : 'low');
+      lastLM = pickDominantHand(r.landmarks, r.handedness);
 
-      // Update sign display
-      const letterEl = document.getElementById('sign-letter');
-      const hintEl   = document.getElementById('sign-hint');
-      if (result.matched && result.label) {
-        letterEl.textContent = result.label;
-        letterEl.className   = 'sign-letter';
-        hintEl.textContent   = SIGN_DICTIONARY[result.label]?.description ?? '';
-        document.getElementById('sign-dot').className = 'dot green';
-        document.getElementById('finger-dot').className = 'dot green';
-      } else {
-        letterEl.textContent = '?';
-        letterEl.className   = 'sign-letter no-detect';
-        hintEl.textContent   = `Low confidence (${result.confidence}%)`;
-        document.getElementById('sign-dot').className = 'dot amber';
-        document.getElementById('finger-dot').className = 'dot amber';
-      }
+      // Store for static capture button (Tab 3)
+      window._currentLandmarks = lastLM;
 
-      // Debounce → text output
-      handleDebounce(result);
+      updateClassifierPanel(lastLM);
+      updateRawPanel(lastLM);
 
+      const hc=document.getElementById('hand-count-display');
+      if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
     } else {
-      // No hand
-      const names = ['thumb','index','middle','ring','pinky'];
-      names.forEach(n => document.getElementById('f-' + n).classList.remove('on'));
-      document.getElementById('conf-bar').style.width = '0%';
-      document.getElementById('conf-pct').textContent  = '0%';
-      document.getElementById('sign-letter').textContent = '—';
-      document.getElementById('sign-letter').className   = 'sign-letter no-detect';
-      document.getElementById('sign-hint').textContent   = 'No hand detected';
-      document.getElementById('sign-dot').className      = 'dot';
-      document.getElementById('finger-dot').className    = 'dot';
-      holdStart = null;
+      lastLM=null;
+      window._currentLandmarks = null;
+      clearCanvas(document.getElementById('overlay'));
+      clearCanvas(document.getElementById('overlay2'));
+      clearCanvas(document.getElementById('overlay3'));
+      resetClassifierDisplay();
+      const hc=document.getElementById('hand-count-display');
+      if(hc) hc.textContent='No hands detected';
     }
-
-    requestAnimationFrame(loop);
   }
-
   requestAnimationFrame(loop);
 }
 
-// Buttons
-document.getElementById('clear-btn').onclick = () => {
-  document.getElementById('text-output').value = '';
-  log('app', 'Text output cleared.', 'info');
+// ══════════════════════════════════════════════════════════
+// TAB 1 — CLASSIFIER PANEL
+// ══════════════════════════════════════════════════════════
+
+function updateClassifierPanel(lm){
+  if(paused)return;
+
+  const result=classifyGesture(lm);
+  const fs=detectFingerStates(lm);
+  document.getElementById('live-fs').textContent='['+fs.join(', ')+']';
+
+  document.getElementById('conf-bar').style.width=result.confidence+'%';
+  document.getElementById('conf-bar').style.background=
+    result.confidence>=84?'var(--green)':result.confidence>=60?'var(--amber)':'var(--red)';
+  document.getElementById('res-conf').textContent='Confidence: '+result.confidence+'%';
+
+  const label=result.label;
+  document.getElementById('res-label').textContent=label??'—';
+
+  if(testingSign){
+    const detected=label===testingSign&&result.matched;
+    const btn=document.getElementById('sgbtn-'+testingSign);
+    if(btn){
+      btn.className='sgbtn'+(detected?' ok':label&&label!==testingSign?' fail':' testing');
+    }
+  }
+
+  if(label&&label===lastRaw){
+    holdCount++;
+  } else {
+    holdCount=1;
+    lastRaw=label;
+  }
+
+  const holdPct=Math.min(100,Math.round((holdCount/holdFrames)*100));
+  document.getElementById('debounce-bar').style.width=holdPct+'%';
+
+  if(coolCount>0){
+    coolCount--;
+    document.getElementById('res-status').textContent=`⏳ Cooldown: ${coolCount} frames`;
+    return;
+  }
+
+  if(holdCount>=holdFrames&&result.matched&&!outputLocked){
+    const textarea=document.getElementById('output-text');
+    if(label==='SPACE'){
+      textarea.value+=' ';
+    } else if(label==='BACKSPACE'){
+      textarea.value=textarea.value.slice(0,-1);
+    } else {
+      textarea.value+=label;
+    }
+    coolCount=cooldownFrames;
+    holdCount=0;
+    addDetLog(label,result.confidence);
+    document.getElementById('res-status').textContent=`✅ Registered: ${label}`;
+  } else if(holdCount<holdFrames&&label){
+    document.getElementById('res-status').textContent=`Hold ${label}… (${holdCount}/${holdFrames} frames)`;
+  } else if(!label){
+    document.getElementById('res-status').textContent='No confident match';
+  }
+}
+
+function resetClassifierDisplay(){
+  holdCount=0;lastRaw=null;
+  document.getElementById('res-label').textContent='—';
+  document.getElementById('res-conf').textContent='Confidence: —';
+  document.getElementById('res-status').textContent='No hand detected';
+  document.getElementById('conf-bar').style.width='0%';
+  document.getElementById('debounce-bar').style.width='0%';
+  document.getElementById('live-fs').textContent='—';
+}
+
+function addDetLog(label,conf){
+  detLog.unshift(`[${new Date().toLocaleTimeString()}] ${label} (${conf}%)`);
+  if(detLog.length>8)detLog.pop();
+  document.getElementById('det-log').innerHTML=
+    detLog.map(l=>`<div style="color:var(--text)">${l}</div>`).join('');
+}
+
+function buildSignGrid(){
+  const grid=document.getElementById('sign-grid');
+  SIGNS.forEach(s=>{
+    const b=document.createElement('button');
+    b.className='sgbtn';
+    b.id='sgbtn-'+s;
+    b.textContent=s;
+    b.onclick=()=>{
+      testingSign=s;
+      document.querySelectorAll('.sgbtn').forEach(x=>{
+        if(x.id!='sgbtn-'+s)x.className='sgbtn';
+      });
+      b.className='sgbtn testing';
+    };
+    grid.appendChild(b);
+  });
+}
+
+window.resetSignBoard=function(){
+  testingSign=null;
+  document.querySelectorAll('.sgbtn').forEach(b=>b.className='sgbtn');
 };
-document.getElementById('stop-btn').onclick = () => {
-  if (videoEl.srcObject) {
-    videoEl.srcObject.getTracks().forEach(t => t.stop());
-    videoEl.srcObject = null;
-    log('cameraUtils', 'Camera stopped.', 'info');
-    document.getElementById('cam-dot').className = 'dot red';
-    document.getElementById('overall-badge').textContent = 'camera stopped';
-    document.getElementById('overall-badge').className = 'badge err';
+
+window.toggleLock=function(){
+  paused=!paused;
+  document.getElementById('lock-btn').textContent=paused?'▶ Resume detection':'⏸ Pause detection';
+  if(!paused)resetClassifierDisplay();
+};
+
+window.updateHoldTime=function(v){
+  holdFrames=parseInt(v);
+  document.getElementById('hold-val').textContent=v+' frames';
+};
+window.updateCooldown=function(v){
+  cooldownFrames=parseInt(v);
+  document.getElementById('cool-val').textContent=v+' frames';
+};
+
+// ══════════════════════════════════════════════════════════
+// TAB 2 — RAW DEBUGGER
+// ══════════════════════════════════════════════════════════
+
+function buildSignButtons(){
+  const cont=document.getElementById('sign-btns');
+  SIGNS.forEach(s=>{
+    const b=document.createElement('button');
+    b.className='sbtn'+(s==='A'?' active':'');
+    b.textContent=s;
+    b.onclick=()=>{
+      document.querySelectorAll('.sbtn').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      selectedSign=s;
+      document.getElementById('capture-btn').textContent=`📸 Capture snapshot for [${s}]`;
+    };
+    cont.appendChild(b);
+  });
+}
+
+function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);return Math.sqrt(dx*dx+dy*dy+dz*dz)}
+
+function getFState(lm,tip,pip,mcp){
+  const tY=lm[tip].y,pY=lm[pip].y,mY=lm[mcp].y;
+  if(tY<pY&&tY<mY)return 2;
+  if(tY<mY)return 1;
+  return 0;
+}
+
+function getThumbState(lm){
+  const tY=lm[THUMB_TIP].y,iY=lm[THUMB_IP].y,mY=lm[THUMB_MCP].y,cY=lm[THUMB_CMC].y;
+  if(tY<iY&&tY<mY)return 2;
+  if(tY<cY)return 1;
+  return 0;
+}
+
+function computeAll(lm){
+  const handScale=dist(lm[WRIST],lm[MIDDLE_TIP]);
+  const fingerScale=dist(lm[INDEX_MCP],lm[WRIST]);
+  const thumbV6=getThumbState(lm);
+  const sideV6=lm[THUMB_TIP].y<lm[THUMB_CMC].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
+  const sideX=Math.abs(lm[THUMB_TIP].x-lm[INDEX_MCP].x)>fingerScale*0.40;
+  const _tipToMCP=dist(lm[THUMB_TIP],lm[INDEX_MCP]);
+  const _tipToWrist=dist(lm[THUMB_TIP],lm[WRIST]);
+  const wrappedV6=(_tipToMCP/handScale<0.55)&&(_tipToWrist/handScale>0.35);
+  const betweenY=lm[THUMB_TIP].y>lm[INDEX_PIP].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
+  const xMin=Math.min(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)-0.03;
+  const xMax=Math.max(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)+0.03;
+  const between=betweenY&&lm[THUMB_TIP].x>=xMin&&lm[THUMB_TIP].x<=xMax;
+  const belowPIP=lm[THUMB_TIP].y>lm[INDEX_PIP].y;
+  const allTips=[lm[INDEX_TIP],lm[MIDDLE_TIP],lm[RING_TIP],lm[PINKY_TIP]];
+  const avgX=(allTips.reduce((s,t)=>s+t.x,0)+lm[THUMB_TIP].x)/5;
+  const avgY2=(allTips.reduce((s,t)=>s+t.y,0)+lm[THUMB_TIP].y)/5;
+  const spread=allTips.reduce((s,t)=>s+Math.sqrt((t.x-avgX)**2+(t.y-avgY2)**2),0)/4;
+  const tipsClose=spread/handScale<0.38;
+  const thumbToIdxTip=dist(lm[THUMB_TIP],lm[INDEX_TIP]);
+  const curvedV6=thumbToIdxTip/handScale<0.60;
+  const iMSpread=dist(lm[INDEX_TIP],lm[MIDDLE_TIP]);
+  const iMSpreadNorm=iMSpread/handScale;
+  const fingersCrossed=iMSpreadNorm<0.18;
+  const indexVertical=(lm[INDEX_MCP].y-lm[INDEX_TIP].y)/handScale>0.40;
+  const thumbToIdxTipNorm=thumbToIdxTip/handScale;
+  const spreadNorm=spread/handScale;
+  return{thumbV6,sideV6,sideX,wrappedV6,between,belowPIP,tipsClose,curvedV6,
+    fingersCrossed,indexVertical,iMSpreadNorm,
+    tipVsCMC:(lm[THUMB_TIP].y-lm[THUMB_CMC].y).toFixed(3),
+    tipVsMCP:(lm[THUMB_TIP].y-lm[THUMB_MCP].y).toFixed(3),
+    tipVsIP:(lm[THUMB_TIP].y-lm[THUMB_IP].y).toFixed(3),
+    tipVsIdxPIP:(lm[THUMB_TIP].y-lm[INDEX_PIP].y).toFixed(3),
+    tipVsIdxMCP:(lm[THUMB_TIP].y-lm[INDEX_MCP].y).toFixed(3),
+    thumbToIdxTip:thumbToIdxTip.toFixed(3),
+    thumbToIdxMCP:dist(lm[THUMB_TIP],lm[INDEX_MCP]).toFixed(3),
+    fingerScale:fingerScale.toFixed(3),
+    handScale:handScale.toFixed(3),
+    spread:spread.toFixed(4),
+    thumbToIdxTipNorm:thumbToIdxTipNorm.toFixed(3),
+    spreadNorm:spreadNorm.toFixed(3),
+    iMSpreadNormStr:iMSpreadNorm.toFixed(3),
+  };
+}
+
+function updateRawPanel(lm){
+  const vals=computeAll(lm);
+  const tsV6=vals.thumbV6;
+  const fs=[tsV6,
+    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
+    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
+    getFState(lm,RING_TIP,RING_PIP,RING_MCP),
+    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
+  document.getElementById('fs-display2').textContent='['+fs.join(', ')+']';
+
+  const tbody=document.getElementById('lm-tbody');
+  const ys=KEY_LM.map(i=>lm[i].y);
+  const minY=Math.min(...ys),maxY=Math.max(...ys);
+  tbody.innerHTML=KEY_LM.map(i=>{
+    const y=lm[i].y.toFixed(4),x=lm[i].x.toFixed(4);
+    const cls=lm[i].y===minY?'hi':lm[i].y===maxY?'lo':'';
+    return`<tr><td class="name">${LM_NAMES[i]}</td><td class="num ${cls}">y=${y}</td><td class="num" style="color:var(--muted)">x=${x}</td></tr>`;
+  }).join('');
+
+  const rows=[
+    ['thumbState (0/1/2)',vals.thumbV6,'num'],
+    ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],
+    ['sideOfFist X (extra)',vals.sideX,'bool'],
+    ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'],
+    ['thumbBetween (T tb)',vals.between,'bool'],
+    ['belowPIP (Q/G/K tb)',vals.belowPIP,'bool'],
+    ['tipsClose ✅ (E/O tb)',vals.tipsClose,'bool'],
+    ['curvedIn (C tb)',vals.curvedV6,'bool'],
+    ['fingersCrossed (R tb)',vals.fingersCrossed,'bool'],
+    ['indexVertical (D/L tb)',vals.indexVertical,'bool'],
+    ['tipΔCMC',vals.tipVsCMC,'delta'],
+    ['tipΔIdxPIP',vals.tipVsIdxPIP,'delta'],
+    ['tipΔIdxMCP',vals.tipVsIdxMCP,'delta'],
+    ['thumb→idxTip (raw)',vals.thumbToIdxTip,'dist'],
+    ['thumbNorm ✅ (fist tb)',vals.thumbToIdxTipNorm,'dist'],
+    ['iMSpreadNorm (U/V tb)',vals.iMSpreadNormStr,'dist'],
+    ['spreadNorm (C/O tb)',vals.spreadNorm,'dist'],
+    ['handScale (WRIST→TIP)',vals.handScale,'dist'],
+    ['spread (raw)',vals.spread,'dist'],
+  ];
+  document.getElementById('tb-grid').innerHTML=rows.map(([n,v,t])=>{
+    let cls='tb-val n',display=v;
+    if(t==='bool'){cls=v?'tb-val t':'tb-val f';display=v?'TRUE':'false';}
+    else if(t==='delta'){cls=parseFloat(v)<0?'tb-val t':'tb-val f';}
+    return`<div class="tb-row"><span class="tb-name">${n}</span><span class="${cls}">${display}</span></div>`;
+  }).join('');
+}
+
+document.getElementById('capture-btn').onclick=()=>{
+  if(!lastLM){alert('No hand detected');return;}
+  const lm=lastLM;
+  const vals=computeAll(lm);
+  const tsV6=vals.thumbV6;
+  const fs=[tsV6,
+    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
+    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
+    getFState(lm,RING_TIP,RING_PIP,RING_MCP),
+    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
+  const fsBin=fs.map(v=>v>=1?1:0);
+  const log=document.getElementById('capture-log');
+  const t=new Date();
+  const ts=`${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+  const entry=document.createElement('div');
+  entry.className='cl-entry';
+  entry.innerHTML=`<span class="cl-sign">${ts} [${selectedSign}]</span><span style="color:var(--text)">
+  fs3=[${fs.join(',')}] fsBin=[${fsBin.join(',')}]
+  sideOfFist=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'}
+  belowPIP=${vals.belowPIP?'T':'F'} tipsClose=${vals.tipsClose?'T':'F'} curvedIn=${vals.curvedV6?'T':'F'}
+  idxVert=${vals.indexVertical?'T':'F'} xed=${vals.fingersCrossed?'T':'F'}
+  thumbNorm=${vals.thumbToIdxTipNorm} iMSprN=${vals.iMSpreadNormStr} sprN=${vals.spreadNorm}
+  hscale=${vals.handScale} spread=${vals.spread}
+  tipΔCMC=${vals.tipVsCMC} tipΔIdxPIP=${vals.tipVsIdxPIP}</span>`;
+  log.appendChild(entry);
+  log.scrollTop=log.scrollHeight;
+};
+
+document.getElementById('clear-log-btn').onclick=()=>{
+  document.getElementById('capture-log').innerHTML='Hold a sign and press capture…';
+};
+
+// ══════════════════════════════════════════════════════════
+// TAB 3 — STATIC CAPTURE (PATH 3)
+// ══════════════════════════════════════════════════════════
+
+function buildSignProgressGrid(){
+  const grid = document.getElementById('sign-progress-grid');
+  grid.innerHTML = '';
+  STATIC_SIGNS.forEach(sign => {
+    const cell = document.createElement('div');
+    cell.className = 'sp-cell' + (sign === activeStaticSign ? ' active-sign' : '');
+    cell.id = 'sp-cell-' + sign;
+    cell.onclick = () => setActiveStaticSign(sign);
+    cell.innerHTML = `
+      <div class="sp-letter">${sign}</div>
+      <div class="sp-count" id="sp-count-${sign}">0 / ${CAPTURE_TARGET}</div>
+      <div class="sp-bar"><div class="sp-fill" id="sp-fill-${sign}" style="width:0%"></div></div>
+    `;
+    grid.appendChild(cell);
+  });
+  updateCountTable();
+}
+
+function setActiveStaticSign(sign){
+  activeStaticSign = sign;
+  document.querySelectorAll('.sp-cell').forEach(c => c.classList.remove('active-sign'));
+  const cell = document.getElementById('sp-cell-' + sign);
+  if(cell) cell.classList.add('active-sign');
+  document.getElementById('active-sign-display').textContent = sign;
+  updateActiveStripCount();
+}
+
+function countForSign(sign){
+  return staticCaptures.filter(c => c.label === sign).length;
+}
+
+function updateActiveStripCount(){
+  const n = countForSign(activeStaticSign);
+  document.getElementById('active-sign-count-strip').textContent =
+    `${activeStaticSign}: ${n} / ${CAPTURE_TARGET}`;
+}
+
+function updateSignCell(sign){
+  const n = countForSign(sign);
+  const countEl = document.getElementById('sp-count-' + sign);
+  const fillEl  = document.getElementById('sp-fill-'  + sign);
+  const cell    = document.getElementById('sp-cell-'  + sign);
+  if(countEl) countEl.textContent = `${n} / ${CAPTURE_TARGET}`;
+  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / CAPTURE_TARGET) * 100)) + '%';
+  if(cell){
+    if(n >= CAPTURE_TARGET) cell.classList.add('done');
+    else cell.classList.remove('done');
+  }
+}
+
+function updateCountTable(){
+  const tbl = document.getElementById('count-table');
+  tbl.innerHTML = STATIC_SIGNS.map(sign => {
+    const n = countForSign(sign);
+    const done = n >= CAPTURE_TARGET;
+    const color = done ? 'var(--green)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
+    return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:11px">
+      <span style="color:${done ? 'var(--green)' : 'var(--muted)'}">${sign}</span>
+      <span style="color:${color};font-weight:700">${n}</span>
+    </div>`;
+  }).join('');
+}
+
+function flashScreen(){
+  const el = document.getElementById('capture-flash');
+  el.classList.remove('flash');
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 120);
+}
+
+function flashSignCell(sign){
+  const cell = document.getElementById('sp-cell-' + sign);
+  if(!cell) return;
+  cell.classList.remove('flash');
+  void cell.offsetWidth;
+  cell.classList.add('flash');
+  setTimeout(() => cell.classList.remove('flash'), 280);
+}
+
+function addToMiniLog(sign, total){
+  const t = new Date();
+  const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+  recentLog.unshift({ sign, ts, total });
+  if(recentLog.length > 40) recentLog.pop();
+  const log = document.getElementById('mini-log');
+  log.innerHTML = recentLog.map(e =>
+    `<div class="ml-entry">
+      <span class="ml-sign-badge">${e.sign}</span>
+      <span style="color:var(--muted)">#${e.total}</span>
+      <span class="ml-ts">${e.ts}</span>
+    </div>`
+  ).join('');
+}
+
+// ── Main static capture function ──
+window.captureStatic = function(){
+  const lm = window._currentLandmarks;
+  if(!lm || lm.length !== 21){
+    // Brief visual error feedback
+    const btn = document.getElementById('btn-static-capture');
+    const orig = btn.textContent;
+    btn.textContent = '⚠️ No hand detected!';
+    btn.style.borderColor = 'var(--red)';
+    btn.style.color = 'var(--red)';
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 900);
+    return;
+  }
+
+  // Flatten 21 landmarks → 63 numbers [x0,y0,z0, x1,y1,z1, ...]
+  const flat = lm.flatMap(p => [p.x, p.y, p.z]);
+  staticCaptures.push({ label: activeStaticSign, landmarks: flat });
+
+  const total = staticCaptures.length;
+
+  // Update UI
+  document.getElementById('total-count').textContent = total;
+  updateSignCell(activeStaticSign);
+  updateActiveStripCount();
+  updateCountTable();
+  flashScreen();
+  flashSignCell(activeStaticSign);
+  addToMiniLog(activeStaticSign, total);
+
+  // Auto-advance to next sign if target reached
+  const n = countForSign(activeStaticSign);
+  if(n === CAPTURE_TARGET){
+    const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+    if(idx < STATIC_SIGNS.length - 1){
+      setTimeout(() => setActiveStaticSign(STATIC_SIGNS[idx + 1]), 400);
+    }
   }
 };
 
-window.addEventListener('beforeunload', () => {
-  if (videoEl.srcObject) videoEl.srcObject.getTracks().forEach(t => t.stop());
+window.exportStaticJSON = function(){
+  if(staticCaptures.length === 0){
+    alert('No captures yet. Capture some signs first.');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(staticCaptures, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'static_data.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.clearStaticData = function(){
+  if(!confirm(`Clear all ${staticCaptures.length} captures? This cannot be undone.`)) return;
+  staticCaptures = [];
+  recentLog      = [];
+  document.getElementById('total-count').textContent = '0';
+  document.getElementById('mini-log').innerHTML = 'No captures yet — show your hand and press Space…';
+  STATIC_SIGNS.forEach(s => updateSignCell(s));
+  updateActiveStripCount();
+  updateCountTable();
+};
+
+// ── Keyboard shortcuts ──
+window.addEventListener('keydown', e => {
+  // Space → capture (Tab 3 only, don't fire when typing in a textarea)
+  if(e.code === 'Space' && document.activeElement.tagName !== 'TEXTAREA'){
+    const panel = document.getElementById('panel-capture');
+    if(panel.classList.contains('active')){
+      e.preventDefault();
+      window.captureStatic();
+    }
+  }
+  // Arrow keys to cycle through signs in Tab 3
+  if(document.getElementById('panel-capture').classList.contains('active')){
+    if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
+      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+      if(idx < STATIC_SIGNS.length - 1) setActiveStaticSign(STATIC_SIGNS[idx + 1]);
+    }
+    if(e.code === 'ArrowLeft' || e.code === 'ArrowUp'){
+      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+      if(idx > 0) setActiveStaticSign(STATIC_SIGNS[idx - 1]);
+    }
+  }
 });
 
-main();
+// ── Skeleton draw ──
+const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
+            [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
+
+function drawSkeletonOnCtx(ctx,lm,w,h){
+  ctx.strokeStyle='#FFFFFF55';ctx.lineWidth=1.5;
+  for(const[a,b]of CONN){
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x*w,lm[a].y*h);
+    ctx.lineTo(lm[b].x*w,lm[b].y*h);
+    ctx.stroke();
+  }
+  for(let i=0;i<21;i++){
+    const tip=[4,8,12,16,20].includes(i);
+    ctx.beginPath();
+    ctx.arc(lm[i].x*w,lm[i].y*h,tip?6:3.5,0,Math.PI*2);
+    ctx.fillStyle=tip?'#FFFFFF':'#00e5a0';ctx.fill();
+  }
+}
+
+function clearCanvas(canvas){
+  if(canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+}
+
+init();
 </script>
 </body>
 </html>

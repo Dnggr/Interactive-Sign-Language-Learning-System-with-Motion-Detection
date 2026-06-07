@@ -39,9 +39,11 @@ export async function startCamera(videoElement, canvasElement) {
             videoElement.onloadedmetadata = () => {
                 videoElement.play()
                     .then(() => {
-                        // Sync canvas size to actual video dimensions
-                        canvasElement.width  = videoElement.videoWidth;
-                        canvasElement.height = videoElement.videoHeight;
+                        // ── FLICKER FIX: only set canvas dimensions if they actually changed ──
+                        // Setting canvas.width or canvas.height always clears the canvas context,
+                        // even if the value is the same. Guarding here prevents unnecessary wipes.
+                        if (canvasElement.width  !== videoElement.videoWidth)  canvasElement.width  = videoElement.videoWidth;
+                        if (canvasElement.height !== videoElement.videoHeight) canvasElement.height = videoElement.videoHeight;
                         resolve();
                     })
                     .catch(reject);
@@ -96,7 +98,6 @@ function handleCameraError(err) {
             break;
         case 'OverconstrainedError':
             message = 'Your camera does not support the required resolution. Trying fallback...';
-            // Could retry here with lower constraints
             break;
         default:
             message = `Camera error: ${err.message || 'Unknown error'}. Please reload the page.`;
