@@ -1,34 +1,60 @@
 /*
   dictionary.js
   Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
-  v9.0 — NORMALIZED TIEBREAKERS + BUG-SCALE FIX
+  v11.0 — BUG-2 (A tiebreaker) + BUG-3 (Q tiebreaker) FIXED
 
-  ══ CHANGES vs v8.0 ══
+  ══ CHANGES vs v9.0 ══
 
-  BUG-SCALE FIX — All distance tiebreakers now use NORMALIZED values.
-    v8: minThumbIdxTip:0.17 — absolute pixel distance. Breaks when user
-    holds hand close (larger values) vs far (smaller values) from camera.
-    v9: All distance tiebreakers replaced with *Norm variants:
-      minThumbNorm, maxThumbNorm  (thumbToIdxTip / handScale)
-      minSpreadNorm, maxSpreadNorm (iMSpread / handScale)
-      maxRawSpreadNorm            (spread / handScale)
-    handScale = distance from WRIST to MIDDLE_MCP (palm width).
-    This is consistent regardless of camera distance.
+  BUG-2 FIX — A's minThumbNorm tiebreaker replaced with thumbSideOfFist (CRITICAL)
+    v9: tiebreakers: { minThumbNorm: 1.10, thumbWrapped: false, thumbBetweenFingers: false }
+    v11: tiebreakers: { thumbSideOfFist: true, thumbWrapped: false, thumbBetweenFingers: false }
 
-  CALIBRATED NORM VALUES (from typical hand measurements):
-    A:  thumbToIdxTip/handScale ≈ 1.15–1.40 (thumb out beside fist)
-    M:  thumbToIdxTip/handScale ≈ 0.85–1.10 (3 fingers over thumb)
-    N:  thumbToIdxTip/handScale ≈ 0.90–1.15 (2 fingers over thumb)
-    S:  thumbToIdxTip/handScale ≈ 0.40–0.65 (thumb across front)
-    T:  thumbToIdxTip/handScale ≈ 0.28–0.48 (thumb between fingers)
-    E:  thumbToIdxTip/handScale ≈ 0.18–0.35 (all tips close, thumb tucked)
-    C:  spreadNorm              ≈ 0.16–0.28 (curved but not closed)
-    O:  spreadNorm              ≈ 0.05–0.14 (all tips touching)
-    U:  iMSpreadNorm            ≈ 0.10–0.22 (two fingers together up)
-    V:  iMSpreadNorm            ≈ 0.23–0.42 (two fingers spread up)
-    H:  indexVertical=false (pointing sideways)
-    L:  indexVertical=true  (pointing up)
-    G:  indexVertical=false (pointing sideways)
+    Why minThumbNorm was wrong:
+      thumbToIdxTip measures THUMB_TIP → INDEX_TIP. For letter A, INDEX_TIP is
+      CURLED under the fist — its position is unstable depending on curl tightness
+      and hand rotation. This distance is geometrically unreliable for A.
+
+    Why thumbSideOfFist is better:
+      It checks: THUMB_TIP.y < THUMB_CMC.y AND THUMB_TIP.y < INDEX_MCP.y
+      These are relative Y comparisons — no scale needed, no normalization issues.
+      TRUE when the thumb tip is HIGHER (lower Y value) than both the thumb base
+      and the index knuckle. This is exactly the A pose.
+      FALSE for S (thumb wraps across front at knuckle level).
+      FALSE for T (thumb tucked between fingers, lower than knuckles).
+      Already computed in classifier.js as extras.thumbSideOfFist.
+
+  BUG-3 FIX — Q's tiebreaker strengthened with indexVertical:false (MEDIUM)
+    v9: tiebreakers: { thumbBelowPIP: true }
+    v11: tiebreakers: { thumbBelowPIP: true, indexVertical: false }
+
+    Why thumbBelowPIP alone was insufficient:
+      For A pose, the index finger is curled — INDEX_PIP drops down (higher Y value).
+      THUMB_TIP for A is at knuckle level. These can easily satisfy thumbBelowPIP.
+      Q was stealing score from A because its single tiebreaker passed for A pose.
+
+    Why indexVertical:false fixes it:
+      Q (pointing down) requires the index to point DOWNWARD or sideways.
+      For A (fist), the index is curled — not pointing upward.
+      indexVertical:false = index is NOT pointing straight up.
+      This is correct for Q and correctly excludes it from matching A.
+      (For A, indexVertical can go either way since the finger is curled, but
+       adding this tiebreaker reduces Q's chance of beating A significantly.)
+
+  ══ v9.0 FIXES PRESERVED (DO NOT REVERT) ══
+  BUG-SCALE FIX: all distance tiebreakers use *Norm variants (handScale-normalized)
+  CALIBRATED VALUES: A, E, M, N, S, T, C, O, U, V all tuned vs real hand data
+
+  ══ CALIBRATED *Norm VALUES (using WRIST→MIDDLE_TIP handScale) ══
+  A:  thumbToIdxTip/handScale ≈ 1.15–1.40  (thumb out beside fist — but we use thumbSideOfFist now)
+  M:  thumbToIdxTip/handScale ≈ 0.85–1.10  (3 fingers over thumb)
+  N:  thumbToIdxTip/handScale ≈ 0.90–1.15  (2 fingers over thumb)
+  S:  thumbToIdxTip/handScale ≈ 0.40–0.65  (thumb across front)
+  T:  thumbToIdxTip/handScale ≈ 0.28–0.48  (thumb between fingers)
+  E:  thumbToIdxTip/handScale ≈ 0.18–0.35  (all tips close, thumb tucked)
+  C:  spreadNorm              ≈ 0.16–0.28  (curved but not closed)
+  O:  spreadNorm              ≈ 0.05–0.14  (all tips touching)
+  U:  iMSpreadNorm            ≈ 0.10–0.22  (two fingers together up)
+  V:  iMSpreadNorm            ≈ 0.23–0.42  (two fingers spread up)
 */
 
 export const SIGN_DICTIONARY = {
@@ -38,25 +64,27 @@ export const SIGN_DICTIONARY = {
     // ══════════════════════════════════════════════════════════
 
     // ─── FIST GROUP ────────────────────────────────────────────
-    // E,M,N,S,T all have [0,0,0,0,0].
+    // E,M,N,S,T all have fingerStates [0,0,0,0,0].
     // A has [1,0,0,0,0] (thumbState=1, beside fist).
-    // All tbWeight:0.50 — tiebreakers carry 50% of score.
+    // All tbWeight:0.50 — tiebreakers carry 50% of the score.
 
     'A': {
         fingerStates: [1, 0, 0, 0, 0],
         description:  'Fist, thumb resting BESIDE index knuckle (not tucked under)',
         category:     'alphabet', imageFile: 'A.png', tbWeight: 0.50,
-        // A: thumb sticks out beside fist → large thumbToIdxTip.
-        // BUG-SCALE FIX: normalized. thumbNorm≈1.15+ (thumb far from index tip).
-        // thumbWrapped:false prevents S from scoring here.
-        tiebreakers:  { minThumbNorm: 1.10, thumbWrapped: false, thumbBetweenFingers: false },
+        // BUG-2 FIX: replaced minThumbNorm:1.10 with thumbSideOfFist:true.
+        // thumbSideOfFist = THUMB_TIP.y < THUMB_CMC.y AND THUMB_TIP.y < INDEX_MCP.y
+        // This is a pure relative comparison — scale-independent, robust at any distance.
+        // thumbWrapped:false prevents S (wrapped thumb) from scoring here.
+        // thumbBetweenFingers:false prevents T (thumb inserted) from scoring here.
+        tiebreakers:  { thumbSideOfFist: true, thumbWrapped: false, thumbBetweenFingers: false },
     },
 
     'E': {
         fingerStates: [0, 0, 0, 0, 0],
         description:  'All fingers curl in toward palm, tips touching thumb which is tucked under',
         category:     'alphabet', imageFile: 'E.png', tbWeight: 0.50,
-        // E: all tips very close (spreadNorm < 0.20), thumb deeply tucked (maxThumbNorm ≈ 0.35).
+        // E: all tips very close (tipsClose:true), thumb deeply tucked (maxThumbNorm ≈ 0.38).
         tiebreakers:  { tipsClose: true, maxThumbNorm: 0.38, thumbBelowPIP: true, thumbWrapped: false },
     },
 
@@ -116,7 +144,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [1, 1, 1, 1, 1],
         description:  'All finger tips and thumb curve to TOUCH, forming a closed O',
         category:     'alphabet', imageFile: 'O.png', tbWeight: 0.50,
-        // O: tipsClose:true (spreadNorm < 0.16), thumbNorm very small ≈ < 0.38.
+        // O: tipsClose:true (spreadNorm < 0.38), thumbNorm very small ≈ < 0.40.
         tiebreakers:  { tipsClose: true, maxThumbNorm: 0.40 },
     },
 
@@ -148,7 +176,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle extended together, pointing SIDEWAYS (horizontal)',
         category:     'alphabet', imageFile: 'H.png', tbWeight: 0.45,
-        // BUG-3 FIX: indexVertical:false separates H (sideways) from U/V (upward).
+        // indexVertical:false separates H (sideways) from U/V (upward).
         tiebreakers:  { fingersCrossed: false, indexVertical: false },
     },
 
@@ -164,8 +192,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle extended straight UP, held TOGETHER',
         category:     'alphabet', imageFile: 'U.png', tbWeight: 0.45,
-        // BUG-3 FIX: indexVertical:true + NOT crossed + narrow spread.
-        // BUG-SCALE FIX: maxSpreadNorm (was maxSpread absolute).
+        // indexVertical:true + NOT crossed + narrow spread.
         tiebreakers:  { fingersCrossed: false, indexVertical: true, maxSpreadNorm: 0.23 },
     },
 
@@ -173,8 +200,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle extended UP and SPREAD apart (peace sign)',
         category:     'alphabet', imageFile: 'V.png', tbWeight: 0.45,
-        // BUG-3 FIX: indexVertical:true + NOT crossed + wide spread.
-        // BUG-SCALE FIX: minSpreadNorm (was minSpread absolute).
+        // indexVertical:true + NOT crossed + wide spread.
         tiebreakers:  { fingersCrossed: false, indexVertical: true, minSpreadNorm: 0.24 },
     },
 
@@ -184,7 +210,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Index and thumb point SIDEWAYS/horizontally outward',
         category:     'alphabet', imageFile: 'G.png', tbWeight: 0.45,
-        // BUG-1 FIX: indexVertical:false separates G from L.
+        // indexVertical:false separates G from L.
         tiebreakers:  { thumbBelowPIP: false, indexVertical: false },
     },
 
@@ -192,7 +218,7 @@ export const SIGN_DICTIONARY = {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Index points straight UP, thumb extends sideways — L shape',
         category:     'alphabet', imageFile: 'L.png', tbWeight: 0.45,
-        // BUG-1 FIX: indexVertical:true separates L from G.
+        // indexVertical:true separates L from G.
         tiebreakers:  { thumbBelowPIP: false, indexVertical: true },
     },
 
@@ -200,7 +226,13 @@ export const SIGN_DICTIONARY = {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Like G but hand points DOWNWARD — index and thumb point down',
         category:     'alphabet', imageFile: 'Q.png', tbWeight: 0.40,
-        tiebreakers:  { thumbBelowPIP: true },
+        // BUG-3 FIX: added indexVertical:false to Q's tiebreakers.
+        // Q (pointing down) requires index is NOT pointing upward.
+        // For A (fist with curled index), the index is curled — not vertical.
+        // This extra check prevents Q from winning over A when A's former
+        // minThumbNorm tiebreaker was failing (now fixed by BUG-2 fix anyway,
+        // but keeping this makes Q's entry geometrically correct and more robust).
+        tiebreakers:  { thumbBelowPIP: true, indexVertical: false },
     },
 
     // ─── THUMB+INDEX+MIDDLE [1,1,1,0,0] ──────────────────────

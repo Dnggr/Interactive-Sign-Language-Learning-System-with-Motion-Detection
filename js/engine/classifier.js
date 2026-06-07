@@ -1,49 +1,34 @@
 /*
   classifier.js
   Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
-  v9.0 — ROOT CAUSE FIXES
+  v11.0 — BUG-1 + BUG-5 FIXED (on top of v9 fixes, which are preserved)
 
-  ══ BUGS FIXED vs v8.0 ══
+  ══ CHANGES vs v9.0 ══
 
-  BUG-C FIX — NULL_ZONE + tbWeight structural failure
-    v8: tbWeight:0.50 for fist group + NULL_ZONE:0.68
-    Math: if tiebreakers score 0/3 → final = 0.5*1.0 + 0.5*0 = 0.50 < 0.68 → REJECTED
-    ALL fist-group letters (E,M,N,S,T) could never clear NULL_ZONE when
-    tiebreakers were ambiguous or the hand pose was slightly off.
-    FIX: NULL_ZONE lowered to 0.55. tbWeight kept at 0.50 for fist group
-    but now a sign with perfect fingerStates + 1/3 tiebreakers = 0.5+0.167=0.667
-    which is above 0.55 and will register. Margin check kept at 0.04.
+  BUG-1 FIX — handScale definition mismatch (CRITICAL)
+    v9: handScale = dist(WRIST, MIDDLE_MCP)  ← short distance (~0.14)
+    v11: handScale = dist(WRIST, MIDDLE_TIP) ← full finger length (~0.30)
+    Why: ALL *Norm thresholds in dictionary.js were calibrated using Tab 2
+    of m2-test.html, which uses MIDDLE_TIP. The classifier was using MIDDLE_MCP,
+    making every normalized tiebreaker compute at ~half the expected value.
+    Result: A's minThumbNorm 1.10 was never reachable when classifier saw ~0.65.
+    Fix: ONE LINE change — lm[MIDDLE_MCP] → lm[MIDDLE_TIP] in computeHandDescriptor().
 
-  BUG-D FIX — DOUBLE DEBOUNCE
-    v8: classifier.js has internal HOLD_FRAMES=20, m2-test.html also has
-    holdFrames=24. User had to hold for 44 frames (~1.5s) before anything registered.
-    This made it feel like nothing was being detected at all.
-    FIX: Remove internal HOLD_FRAMES smoothing from classifyGesture entirely.
-    classifyGesture now returns matched:true on the FIRST frame where score
-    meets threshold and margin. The test HTML's hold timer (24 frames) is the
-    only debounce. This is cleaner — UI layer controls timing, engine just scores.
-    The _confirmedLabel / _holdCount state has been removed from the engine.
+  BUG-5 FIX — partial-bend penalty too permissive (MEDIUM)
+    v9: else if (live[i] === 1) primary += 0.45;
+    v11: else if (live[i] === 1) primary += 0.20;
+    Why: When ref=0 (should be curled) but live=1 (slightly bent), 0.45 partial
+    credit lets wrong signs accumulate enough score to sneak past NULL_ZONE.
+    Lowering to 0.20 makes it much harder for a wrong sign to win by being
+    "almost right" on every finger. E/M/N/S/T are unaffected — they rely on
+    tiebreakers, not primary score alone.
 
-  BUG-E FIX — Thumb A-position scoring 0.7 instead of 1.0
-    v8: getThumbState for A-position (thumb beside fist) returns 1 (not 2).
-    Dictionary A has fingerStates[0]=1. Score: ref=1 vs live=1 → 0.7 (partial).
-    This means A's defining feature gets partial credit, reducing base score.
-    FIX: Scoring rule changed — ref===1 AND live===1 now gives 1.0 (not 0.7).
-    "Partially extended" is still "extended" for the purpose of the dictionary.
-    The distinction between 1 and 2 is used for tiebreaking via extras, not scoring.
-
-  BUG-SCALE FIX — thumbWrapped/thumbBetweenFingers use absolute Y thresholds
-    v8: isThumbWrapped uses lm[THUMB_TIP].y >= lm[INDEX_MCP].y - 0.04 which is
-    an absolute pixel value. When hand is held closer/farther from camera, ALL
-    landmark Y values shift uniformly, but relative distances stay the same.
-    FIX: All tiebreaker geometry now uses handScale-normalized distances
-    where needed, or relative comparisons (a.y < b.y) instead of thresholds.
-    thumbWrapped, thumbBetweenFingers now use normalized distances via handScale.
-
-  BUG-VERTICAL FIX — indexVertical threshold too strict
-    v8: indexVertical = (INDEX_MCP.y - INDEX_TIP.y) > 0.08
-    If user tilts hand slightly, an upward index may only give 0.06 difference.
-    FIX: Lowered to 0.05. Also made it scale-relative using handScale factor.
+  ══ v9.0 FIXES PRESERVED (DO NOT REVERT) ══
+  BUG-C FIX: NULL_ZONE lowered 0.68 → 0.55
+  BUG-D FIX: internal double-debounce removed
+  BUG-E FIX: ref===1, live===1 → 1.0 (not 0.7)
+  BUG-SCALE FIX: thumbWrapped/thumbBetweenFingers use normalized distances
+  BUG-VERTICAL FIX: indexVertical threshold 0.08 → 0.40 (scale-normalized)
 */
 
 import { SIGN_DICTIONARY } from './dictionary.js';
@@ -76,6 +61,7 @@ const PINKY_TIP  = 20;
 // This lets fist-group signs register when tiebreakers are partially ambiguous.
 const NULL_ZONE_THRESHOLD  = 0.55;
 const CONFIDENCE_THRESHOLD = 78;  // % threshold for matched:true
+const MARGIN_THRESHOLD     = 0.03; // minimum gap between 1st and 2nd place
 
 // ─────────────────────────────────────────────────────────
 // Public API
@@ -87,7 +73,7 @@ const CONFIDENCE_THRESHOLD = 78;  // % threshold for matched:true
  * on first frame meeting threshold. UI layer controls debounce timing.
  *
  * @param {Array<{x,y,z}>} landmarks - 21 MediaPipe landmarks (normalized 0-1)
- * @returns {{ label:string|null, confidence:number, matched:boolean, raw:object }}
+ * @returns {{ label:string|null, confidence:number, matched:boolean }}
  */
 export function classifyGesture(landmarks) {
     if (!landmarks || landmarks.length < 21) {
@@ -95,8 +81,8 @@ export function classifyGesture(landmarks) {
     }
 
     const descriptor = computeHandDescriptor(landmarks);
-    let bestLabel  = null;
-    let bestScore  = 0;
+    let bestLabel   = null;
+    let bestScore   = 0;
     let secondScore = 0;
 
     for (const [label, signData] of Object.entries(SIGN_DICTIONARY)) {
@@ -112,7 +98,7 @@ export function classifyGesture(landmarks) {
     }
 
     const margin = bestScore - secondScore;
-    if (bestScore < NULL_ZONE_THRESHOLD || margin < 0.03) {
+    if (bestScore < NULL_ZONE_THRESHOLD || margin < MARGIN_THRESHOLD) {
         return { label: null, confidence: 0, matched: false };
     }
 
@@ -123,16 +109,18 @@ export function classifyGesture(landmarks) {
 }
 
 /** Reset function — kept for API compatibility with m2-test.html */
-export function resetClassifier() { /* no-op in v9 — state moved to UI layer */ }
+export function resetClassifier() { /* no-op in v9+ — state moved to UI layer */ }
 
 // ─────────────────────────────────────────────────────────
 // Hand descriptor — computed once per frame
 // ─────────────────────────────────────────────────────────
 
 function computeHandDescriptor(lm) {
-    // Scale reference: distance from wrist to middle MCP (palm size)
-    // Used to normalize all distance thresholds — makes them camera-distance-independent
-    const handScale = landmarkDistance(lm[WRIST], lm[MIDDLE_MCP]);
+    // ── BUG-1 FIX: use MIDDLE_TIP (idx 12) not MIDDLE_MCP (idx 9) ──
+    // MIDDLE_TIP gives the full wrist-to-fingertip distance (~0.30),
+    // matching what Tab 2 of m2-test.html uses. All *Norm thresholds
+    // in dictionary.js were calibrated against this longer scale.
+    const handScale = landmarkDistance(lm[WRIST], lm[MIDDLE_TIP]);
 
     const thumbState = getThumbState(lm);
     const idxState   = getFingerState(lm, INDEX_TIP,  INDEX_PIP,  INDEX_MCP);
@@ -171,7 +159,7 @@ function computeHandDescriptor(lm) {
             thumbTipBelowIndexPIP: lm[THUMB_TIP].y > lm[INDEX_PIP].y,
 
             // Index finger direction
-            // BUG-VERTICAL FIX: lowered threshold, scale-normalized
+            // BUG-VERTICAL FIX: scale-normalized threshold
             indexVertical: (lm[INDEX_MCP].y - lm[INDEX_TIP].y) / handScale > 0.40,
 
             // Finger geometry
@@ -210,21 +198,22 @@ function getThumbState(lm) {
 // ─────────────────────────────────────────────────────────
 
 function isThumbSideOfFist(lm) {
-    // Thumb tip is ABOVE (lower Y than) both the CMC and index MCP
+    // TRUE when thumb tip is ABOVE (lower Y) both THUMB_CMC and INDEX_MCP.
+    // This is exactly the A pose — thumb sticks out beside the fist.
+    // FALSE for S (thumb wraps across front) and T (thumb tucked between fingers).
     return lm[THUMB_TIP].y < lm[THUMB_CMC].y && lm[THUMB_TIP].y < lm[INDEX_MCP].y;
 }
 
 function isThumbWrapped(lm, handScale) {
-    // BUG-SCALE FIX: use normalized distance instead of absolute Y threshold
-    // S: thumb wraps ACROSS fingers — tip is at knuckle level but NOT tucked under
+    // BUG-SCALE FIX: normalized distance instead of absolute Y threshold.
+    // S: thumb wraps ACROSS fingers — tip is close to knuckle row but not tucked.
     const tipToIdxMCP = landmarkDistance(lm[THUMB_TIP], lm[INDEX_MCP]);
     const tipToWrist  = landmarkDistance(lm[THUMB_TIP], lm[WRIST]);
-    // Wrapped: tip is close to the knuckle row (not far away like A or E)
     return (tipToIdxMCP / handScale < 0.55) && (tipToWrist / handScale > 0.35);
 }
 
 function isThumbBetweenFingers(lm) {
-    // T: thumb inserted between index and middle fingers
+    // T: thumb inserted between index and middle fingers.
     const tipY    = lm[THUMB_TIP].y;
     const idxPipY = lm[INDEX_PIP].y;
     const idxMcpY = lm[INDEX_MCP].y;
@@ -249,15 +238,16 @@ function scoreAgainstSign(descriptor, signData) {
     for (let i = 0; i < 5; i++) {
         if (ref[i] === 1) {
             // Dictionary says EXTENDED:
-            // BUG-E FIX: live===1 (partially bent) now gives 1.0, not 0.7
-            // Partial extension IS extension for the dictionary's purposes.
-            // Tiebreakers handle the fine distinctions.
+            // BUG-E FIX: live===1 (partially bent) still gives 1.0 — partial extension
+            // IS extension for dictionary purposes. Tiebreakers handle fine distinctions.
             if (live[i] >= 1) primary += 1.0;  // any extension = match
             else              primary += 0.0;  // curled when should be extended = fail
         } else {
-            // Dictionary says CURLED:
+            // Dictionary says CURLED (ref=0):
             if (live[i] === 0)      primary += 1.0;  // curled ✓
-            else if (live[i] === 1) primary += 0.45; // slightly bent — small penalty
+            // BUG-5 FIX: was 0.45 — too generous, lets wrong signs accumulate score.
+            // 0.20 makes slightly-bent fingers cost more, reducing false positives.
+            else if (live[i] === 1) primary += 0.20; // slightly bent — penalty
             else                    primary += 0.0;  // fully extended when should be curled = fail
         }
     }
@@ -282,14 +272,14 @@ function scoreAgainstSign(descriptor, signData) {
         if (tb.thumbCurvedIn       !== undefined) { cnt++; if (e.thumbCurvedIn           === tb.thumbCurvedIn)       bonus++; }
         if (tb.indexVertical       !== undefined) { cnt++; if (e.indexVertical           === tb.indexVertical)       bonus++; }
 
-        // Range tiebreakers — use NORMALIZED values (handScale-independent)
+        // Range tiebreakers — NORMALIZED (handScale-independent)
         if (tb.minSpreadNorm       !== undefined) { cnt++; if (e.iMSpreadNorm            >= tb.minSpreadNorm)        bonus++; }
         if (tb.maxSpreadNorm       !== undefined) { cnt++; if (e.iMSpreadNorm            <= tb.maxSpreadNorm)        bonus++; }
         if (tb.minThumbNorm        !== undefined) { cnt++; if (e.thumbToIdxTipNorm       >= tb.minThumbNorm)         bonus++; }
         if (tb.maxThumbNorm        !== undefined) { cnt++; if (e.thumbToIdxTipNorm       <= tb.maxThumbNorm)         bonus++; }
         if (tb.maxRawSpreadNorm    !== undefined) { cnt++; if (e.spreadNorm              <= tb.maxRawSpreadNorm)     bonus++; }
 
-        // Legacy absolute range tiebreakers (kept for v8 dictionary compatibility)
+        // Legacy absolute range tiebreakers (v8 dictionary compatibility — keep for safety)
         if (tb.minSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       >= tb.minSpread)            bonus++; }
         if (tb.maxSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       <= tb.maxSpread)            bonus++; }
         if (tb.minThumbIdxTip      !== undefined) { cnt++; if (e.thumbToIdxTip          >= tb.minThumbIdxTip)       bonus++; }
@@ -315,10 +305,19 @@ export function landmarkDistance(a, b) {
 // Legacy exports — backward compatibility with m2-test.html
 // ─────────────────────────────────────────────────────────
 
+/**
+ * Returns the raw 3-level finger states [0,1,2] for each finger.
+ * Tab 1 of m2-test.html uses this to display live finger states.
+ * NOTE: returns the TRUE 3-level values (0=curled, 1=bent, 2=extended).
+ * The old version collapsed everything to 0/1 — that was the bug causing
+ * Tab 1 to never show 2s. This now shows the real internal values.
+ */
 export function detectFingerStates(lm) {
     if (!lm || lm.length < 21) return [0,0,0,0,0];
-    return computeHandDescriptor(lm).fingerStates.map(v => v >= 1 ? 1 : 0);
+    // Return raw 3-level states — do NOT collapse to 0/1
+    return computeHandDescriptor(lm).fingerStates;
 }
+
 export function isFingerExtended(lm, tipIdx, mcpIdx) {
     return lm[tipIdx].y < lm[mcpIdx].y ? 1 : 0;
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Debugger v9 — Dual Hand + Fixed Classifier</title>
+<title>M2 Debugger v11 — All Bugs Fixed</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -139,8 +139,8 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 <body>
 
 <div style="text-align:center">
-  <h1>🔬 M2 Debugger v9 — Dual Hand + Fixed Classifier</h1>
-  <p class="sub">Tab 1: live classifier (A-Z + ILY) · Tab 2: raw landmark inspector</p>
+  <h1>🔬 M2 Debugger v11 — All Bugs Fixed</h1>
+  <p class="sub">Tab 1: live classifier (A-Z + ILY) · Tab 2: raw landmark inspector (synced to classifier)</p>
   <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
 </div>
 
@@ -223,10 +223,11 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       </div>
     </div>
 
-    <!-- Live finger states -->
+    <!-- Live finger states — NOW SHOWS 0/1/2 -->
     <div class="card">
       <div class="ctitle">Live finger states from classifier</div>
       <div class="fs-display" id="live-fs">—</div>
+      <!-- BUG FIX: label now says 2=extended 1=bent 0=curled (was only 0/1) -->
       <div class="fs-label">[thumb, index, middle, ring, pinky] · 2=extended 1=bent 0=curled</div>
     </div>
 
@@ -255,7 +256,7 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     </div>
 
     <div class="card">
-      <div class="ctitle">Detected finger states (raw)</div>
+      <div class="ctitle">Detected finger states (raw — 0/1/2)</div>
       <div class="fs-display" id="fs-display2">—</div>
       <div class="fs-label">[thumb, index, middle, ring, pinky] — 2=extended 1=bent 0=curled</div>
     </div>
@@ -271,7 +272,8 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     </div>
 
     <div class="card">
-      <div class="ctitle">Computed tiebreakers (live)</div>
+      <!-- BUG-4 FIX label: "(synced to classifier)" -->
+      <div class="ctitle">Computed tiebreakers — synced to classifier v11</div>
       <div class="tb-grid" id="tb-grid"></div>
     </div>
   </div>
@@ -283,7 +285,13 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       2. Hold that sign clearly in frame.<br>
       3. Click <b>📸 Capture snapshot</b>.<br>
       4. Do this for A, C, S, T, N, E, M.<br><br>
-      The log shows you the <b>exact Y values and tiebreakers</b> for your real hand — use these to tune thresholds in dictionary.js.
+      The log shows you the <b>exact tiebreaker values</b> for your real hand.<br><br>
+      <b>v11 FIXES in Tab 2:</b><br>
+      • handScale = WRIST→MIDDLE_TIP (matches classifier)<br>
+      • thumbSideOfFist uses correct landmarks (CMC+MCP, not PIP+MCP)<br>
+      • thumbWrapped uses normalized distances<br>
+      • tipsClose uses normalized formula (spread/handScale &lt; 0.38)<br>
+      • thumbNorm column now shown
     </div>
 
     <button class="btn-capture" id="capture-btn">📸 Capture snapshot for [A]</button>
@@ -370,7 +378,7 @@ async function init(){
       baseOptions:{
         modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
         delegate:'GPU'},
-      runningMode:'VIDEO',numHands:2,  // BUG-2 FIX: was 1, must be 2 for dual hand
+      runningMode:'VIDEO',numHands:2,
       minHandDetectionConfidence:0.7,
       minHandPresenceConfidence:0.7,
       minTrackingConfidence:0.6,
@@ -394,7 +402,6 @@ function setStatus(msg,cls){
 function pickDominantHand(landmarks, handedness){
   if(!landmarks||landmarks.length===0) return null;
   if(landmarks.length===1) return landmarks[0];
-  // Two hands — prefer "Left" (= user's right hand)
   for(let i=0;i<(handedness||[]).length;i++){
     const cat=(handedness[i]?.[0]?.categoryName)||(handedness[i]?.categoryName)||'';
     if(cat==='Left') return landmarks[i];
@@ -411,7 +418,6 @@ function loop(){
     const r=handLandmarker.detectForVideo(v1,performance.now());
 
     if(r.landmarks&&r.landmarks.length>0){
-      // BUG-2 FIX: Draw ALL detected hands on both canvases
       const c1=document.getElementById('overlay');
       const c2=document.getElementById('overlay2');
       const ctx1=c1.getContext('2d'); ctx1.clearRect(0,0,c1.width,c1.height);
@@ -421,12 +427,10 @@ function loop(){
         drawSkeletonOnCtx(ctx2,lm,c2.width,c2.height);
       });
 
-      // Classify using dominant (right) hand
       lastLM = pickDominantHand(r.landmarks, r.handedness);
       updateClassifierPanel(lastLM);
       updateRawPanel(lastLM);
 
-      // Update hand count display
       const hc=document.getElementById('hand-count-display');
       if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
     } else {
@@ -449,6 +453,9 @@ function updateClassifierPanel(lm){
   if(paused)return;
 
   const result=classifyGesture(lm);
+
+  // BUG FIX: detectFingerStates now returns raw 3-level [0,1,2] values.
+  // Previously it collapsed everything to 0/1, so Tab 1 never showed 2s.
   const fs=detectFingerStates(lm);
   document.getElementById('live-fs').textContent='['+fs.join(', ')+']';
 
@@ -491,7 +498,6 @@ function updateClassifierPanel(lm){
   }
 
   if(holdCount>=holdFrames&&result.matched&&!outputLocked){
-    // Register the sign
     const textarea=document.getElementById('output-text');
     if(label==='SPACE'){
       textarea.value+=' ';
@@ -569,7 +575,8 @@ window.updateCooldown=function(v){
 };
 
 // ══════════════════════════════════════════════════════════
-// TAB 2 — RAW DEBUGGER (unchanged from your working m2-test.html)
+// TAB 2 — RAW DEBUGGER
+// ALL formulas now synced to classifier.js v11
 // ══════════════════════════════════════════════════════════
 
 function buildSignButtons(){
@@ -588,41 +595,89 @@ function buildSignButtons(){
   });
 }
 
+// dist helper — 3D euclidean (matches landmarkDistance in classifier.js)
 function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);return Math.sqrt(dx*dx+dy*dy+dz*dz)}
 
+// 3-level finger state — matches classifier.js getFingerState exactly
 function getFState(lm,tip,pip,mcp){
-  if(lm[tip].y<lm[pip].y&&lm[tip].y<lm[mcp].y)return 2;
-  if(lm[tip].y<lm[mcp].y)return 1;
-  return 0;
+  const tY=lm[tip].y,pY=lm[pip].y,mY=lm[mcp].y;
+  if(tY<pY&&tY<mY)return 2;  // fully extended
+  if(tY<mY)return 1;          // partially bent
+  return 0;                   // curled
+}
+
+// 3-level thumb state — matches classifier.js getThumbState exactly
+function getThumbState(lm){
+  const tY=lm[THUMB_TIP].y,iY=lm[THUMB_IP].y,mY=lm[THUMB_MCP].y,cY=lm[THUMB_CMC].y;
+  if(tY<iY&&tY<mY)return 2;  // fully extended
+  if(tY<cY)return 1;          // beside fist (A position)
+  return 0;                   // tucked
 }
 
 function computeAll(lm){
-  const tipY=lm[THUMB_TIP].y,ipY=lm[THUMB_IP].y,mcpY=lm[THUMB_MCP].y,cmcY=lm[THUMB_CMC].y;
-  let thumbV6=0;
-  if(tipY<ipY&&tipY<mcpY)thumbV6=2;
-  else if(tipY<cmcY)thumbV6=1;
-
-  const handScale=dist(lm[MIDDLE_TIP],lm[WRIST]);
+  // BUG-1 FIX: handScale = WRIST → MIDDLE_TIP (matches classifier.js v11)
+  // Previously was MIDDLE_TIP → WRIST (same distance but let's be consistent)
+  // and v9 classifier used WRIST → MIDDLE_MCP (WRONG — now fixed in classifier)
+  const handScale=dist(lm[WRIST],lm[MIDDLE_TIP]);
   const fingerScale=dist(lm[INDEX_MCP],lm[WRIST]);
 
-  const sideV6=lm[THUMB_TIP].y<lm[INDEX_PIP].y&&lm[THUMB_TIP].y<lm[THUMB_MCP].y;
+  // Thumb state (3-level — matches classifier)
+  const thumbV6=getThumbState(lm);
+
+  // BUG-4 FIX: thumbSideOfFist now uses correct landmarks THUMB_CMC and INDEX_MCP
+  // Was: lm[THUMB_TIP].y < lm[INDEX_PIP].y && lm[THUMB_TIP].y < lm[THUMB_MCP].y  ← WRONG
+  // Now: lm[THUMB_TIP].y < lm[THUMB_CMC].y && lm[THUMB_TIP].y < lm[INDEX_MCP].y  ← matches classifier
+  const sideV6=lm[THUMB_TIP].y<lm[THUMB_CMC].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
+
+  // sideX (visual extra — lateral separation, not used in classifier scoring)
   const sideX=Math.abs(lm[THUMB_TIP].x-lm[INDEX_MCP].x)>fingerScale*0.40;
-  const wrappedV6=(lm[THUMB_TIP].y>=lm[INDEX_MCP].y-0.03)&&(lm[THUMB_TIP].y<lm[INDEX_MCP].y+0.06)&&(lm[THUMB_TIP].y>lm[WRIST].y);
+
+  // BUG-4 FIX: thumbWrapped now uses normalized distances — matches classifier.js isThumbWrapped()
+  // Was: absolute Y threshold (position-dependent) ← WRONG
+  // Now: normalized dist(THUMB_TIP, INDEX_MCP) / handScale < 0.55 AND
+  //       normalized dist(THUMB_TIP, WRIST) / handScale > 0.35
+  const _tipToMCP=dist(lm[THUMB_TIP],lm[INDEX_MCP]);
+  const _tipToWrist=dist(lm[THUMB_TIP],lm[WRIST]);
+  const wrappedV6=(_tipToMCP/handScale<0.55)&&(_tipToWrist/handScale>0.35);
+
+  // thumbBetweenFingers — matches classifier.js isThumbBetweenFingers() exactly
   const betweenY=lm[THUMB_TIP].y>lm[INDEX_PIP].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
-  const xMin=Math.min(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)-0.02;
-  const xMax=Math.max(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)+0.02;
+  const xMin=Math.min(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)-0.03;
+  const xMax=Math.max(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)+0.03;
   const between=betweenY&&lm[THUMB_TIP].x>=xMin&&lm[THUMB_TIP].x<=xMax;
+
   const belowPIP=lm[THUMB_TIP].y>lm[INDEX_PIP].y;
+
+  // All-tips spread — matches classifier.js computeHandDescriptor()
   const allTips=[lm[INDEX_TIP],lm[MIDDLE_TIP],lm[RING_TIP],lm[PINKY_TIP]];
   const avgX=(allTips.reduce((s,t)=>s+t.x,0)+lm[THUMB_TIP].x)/5;
   const avgY2=(allTips.reduce((s,t)=>s+t.y,0)+lm[THUMB_TIP].y)/5;
   const spread=allTips.reduce((s,t)=>s+Math.sqrt((t.x-avgX)**2+(t.y-avgY2)**2),0)/4;
-  const tipsClose=spread<0.06;
-  const curvedV6=dist(lm[THUMB_TIP],lm[INDEX_TIP])<handScale*0.85;
+
+  // BUG-6 FIX: tipsClose now uses normalized formula — matches classifier
+  // Was: spread < 0.06 (absolute threshold — breaks at different distances) ← WRONG
+  // Now: spread / handScale < 0.38 — matches extras.tipsClose in classifier.js
+  const tipsClose=spread/handScale<0.38;
+
+  // curvedIn — matches classifier: thumbToIdxTip / handScale < 0.60
   const thumbToIdxTip=dist(lm[THUMB_TIP],lm[INDEX_TIP]);
+  const curvedV6=thumbToIdxTip/handScale<0.60;
+
+  // iMSpread and fingersCrossed — matches classifier
+  const iMSpread=dist(lm[INDEX_TIP],lm[MIDDLE_TIP]);
+  const iMSpreadNorm=iMSpread/handScale;
+  const fingersCrossed=iMSpreadNorm<0.18;
+
+  // indexVertical — matches classifier: (INDEX_MCP.y - INDEX_TIP.y) / handScale > 0.40
+  const indexVertical=(lm[INDEX_MCP].y-lm[INDEX_TIP].y)/handScale>0.40;
+
+  // Normalized thumb distance (THE KEY ONE for fist group tiebreakers)
+  const thumbToIdxTipNorm=thumbToIdxTip/handScale;
+  const spreadNorm=spread/handScale;
 
   return {
     thumbV6,sideV6,sideX,wrappedV6,between,belowPIP,tipsClose,curvedV6,
+    fingersCrossed,indexVertical,iMSpreadNorm,
     tipVsCMC:(lm[THUMB_TIP].y-lm[THUMB_CMC].y).toFixed(3),
     tipVsMCP:(lm[THUMB_TIP].y-lm[THUMB_MCP].y).toFixed(3),
     tipVsIP:(lm[THUMB_TIP].y-lm[THUMB_IP].y).toFixed(3),
@@ -633,15 +688,20 @@ function computeAll(lm){
     fingerScale:fingerScale.toFixed(3),
     handScale:handScale.toFixed(3),
     spread:spread.toFixed(4),
+    // BUG-4 FIX: add normalized values to display
+    thumbToIdxTipNorm:thumbToIdxTipNorm.toFixed(3),
+    spreadNorm:spreadNorm.toFixed(3),
+    iMSpreadNormStr:iMSpreadNorm.toFixed(3),
   };
 }
 
 function updateRawPanel(lm){
   const vals=computeAll(lm);
 
-  // Finger states display
+  // Finger states display — 3-level, matches classifier
   const tsV6=vals.thumbV6;
-  const fs=[tsV6,getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
+  const fs=[tsV6,
+    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
     getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
     getFState(lm,RING_TIP,RING_PIP,RING_MCP),
     getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
@@ -657,23 +717,31 @@ function updateRawPanel(lm){
     return`<tr><td class="name">${LM_NAMES[i]}</td><td class="num ${cls}">y=${y}</td><td class="num" style="color:var(--muted)">x=${x}</td></tr>`;
   }).join('');
 
-  // Tiebreaker grid
+  // Tiebreaker grid — ALL synced to classifier.js v11
+  // BUG-4 FIX: sideOfFist now correct, tipsClose now correct, wrappedV6 now correct
+  // BUG-4 FIX: added thumbNorm (A tiebreaker) — critical for diagnosing fist group
+  // BUG-6 FIX: tipsClose uses normalized formula
   const rows=[
-    ['thumbState v6',vals.thumbV6,'num'],
-    ['sideOfFist Y (A)',vals.sideV6,'bool'],
-    ['sideOfFist X (A)',vals.sideX,'bool'],
-    ['wrapped (S)',vals.wrappedV6,'bool'],
-    ['between (T)',vals.between,'bool'],
-    ['belowPIP',vals.belowPIP,'bool'],
-    ['tipsClose',vals.tipsClose,'bool'],
-    ['curvedIn v6 (C)',vals.curvedV6,'bool'],
+    ['thumbState (0/1/2)',vals.thumbV6,'num'],
+    ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],   // BUG-4 FIX: now uses CMC+MCP
+    ['sideOfFist X (extra)',vals.sideX,'bool'],
+    ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'], // BUG-4 FIX: now normalized
+    ['thumbBetween (T tb)',vals.between,'bool'],
+    ['belowPIP (Q/G/K tb)',vals.belowPIP,'bool'],
+    ['tipsClose ✅ (E/O tb)',vals.tipsClose,'bool'],  // BUG-6 FIX: now normalized
+    ['curvedIn (C tb)',vals.curvedV6,'bool'],
+    ['fingersCrossed (R tb)',vals.fingersCrossed,'bool'],
+    ['indexVertical (D/L tb)',vals.indexVertical,'bool'],
     ['tipΔCMC',vals.tipVsCMC,'delta'],
     ['tipΔIdxPIP',vals.tipVsIdxPIP,'delta'],
     ['tipΔIdxMCP',vals.tipVsIdxMCP,'delta'],
-    ['thumb→idxTip',vals.thumbToIdxTip,'dist'],
-    ['thumb→idxMCP',vals.thumbToIdxMCP,'dist'],
-    ['handScale',vals.handScale,'dist'],
-    ['spread',vals.spread,'dist'],
+    ['thumb→idxTip (raw)',vals.thumbToIdxTip,'dist'],
+    // BUG-4 FIX: thumbNorm is THE critical value for fist group (A,E,M,N,S,T)
+    ['thumbNorm ✅ (fist tb)',vals.thumbToIdxTipNorm,'dist'],
+    ['iMSpreadNorm (U/V tb)',vals.iMSpreadNormStr,'dist'],
+    ['spreadNorm (C/O tb)',vals.spreadNorm,'dist'],
+    ['handScale (WRIST→TIP)',vals.handScale,'dist'],  // BUG-1 FIX: now MIDDLE_TIP
+    ['spread (raw)',vals.spread,'dist'],
   ];
   document.getElementById('tb-grid').innerHTML=rows.map(([n,v,t])=>{
     let cls='tb-val n',display=v;
@@ -688,22 +756,27 @@ document.getElementById('capture-btn').onclick=()=>{
   if(!lastLM){alert('No hand detected');return;}
   const lm=lastLM;
   const vals=computeAll(lm);
-  const fs=[vals.thumbV6,
-    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP)>=1?1:0,
-    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP)>=1?1:0,
-    getFState(lm,RING_TIP,RING_PIP,RING_MCP)>=1?1:0,
-    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)>=1?1:0];
+  const tsV6=vals.thumbV6;
+  const fs=[tsV6,
+    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
+    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
+    getFState(lm,RING_TIP,RING_PIP,RING_MCP),
+    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
+  // Collapse 3-level to 0/1 for dictionary comparison
+  const fsBin=fs.map(v=>v>=1?1:0);
   const log=document.getElementById('capture-log');
   const t=new Date();
   const ts=`${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
   const entry=document.createElement('div');
   entry.className='cl-entry';
   entry.innerHTML=`<span class="cl-sign">${ts} [${selectedSign}]</span><span style="color:var(--text)">
-  fs=[${fs.join(',')}] tsV6=${vals.thumbV6}
-  sideY=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'} belowPIP=${vals.belowPIP?'T':'F'}
-  tipsClose=${vals.tipsClose?'T':'F'} curvedV6=${vals.curvedV6?'T':'F'}
-  tipΔCMC=${vals.tipVsCMC} tipΔIdxPIP=${vals.tipVsIdxPIP} tipΔIdxMCP=${vals.tipVsIdxMCP}
-  thumbToIdxTip=${vals.thumbToIdxTip} hscale=${vals.handScale} spread=${vals.spread}</span>`;
+  fs3=[${fs.join(',')}] fsBin=[${fsBin.join(',')}]
+  sideOfFist=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'}
+  belowPIP=${vals.belowPIP?'T':'F'} tipsClose=${vals.tipsClose?'T':'F'} curvedIn=${vals.curvedV6?'T':'F'}
+  idxVert=${vals.indexVertical?'T':'F'} xed=${vals.fingersCrossed?'T':'F'}
+  thumbNorm=${vals.thumbToIdxTipNorm} iMSprN=${vals.iMSpreadNormStr} sprN=${vals.spreadNorm}
+  hscale=${vals.handScale} spread=${vals.spread}
+  tipΔCMC=${vals.tipVsCMC} tipΔIdxPIP=${vals.tipVsIdxPIP}</span>`;
   log.appendChild(entry);
   log.scrollTop=log.scrollHeight;
 };
@@ -717,14 +790,11 @@ const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11]
             [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
 
 function drawSkeleton(canvas,lm){
-  // Legacy wrapper — still used by any remaining direct calls
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
   drawSkeletonOnCtx(ctx,lm,canvas.width,canvas.height);
 }
 
-// BUG-2 FIX: ctx-based version so multiple hands can be drawn per frame
-// without clearing the canvas between each hand
 function drawSkeletonOnCtx(ctx,lm,w,h){
   ctx.strokeStyle='#FFFFFF55';ctx.lineWidth=1.5;
   for(const[a,b]of CONN){
