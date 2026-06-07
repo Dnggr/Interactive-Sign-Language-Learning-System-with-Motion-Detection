@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Debugger v11 — All Bugs Fixed</title>
+<title>M2 Debugger v12 — Static Capture (Path 3)</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -32,8 +32,8 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 /* Webcam */
 .webcam-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#000;
   border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-#webcam,#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-#overlay{z-index:2;pointer-events:none}
+#webcam,#overlay,#webcam2,#overlay2,#webcam3,#overlay3{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#overlay,#overlay2,#overlay3{z-index:2;pointer-events:none}
 
 .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
 .ctitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
@@ -49,16 +49,13 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .conf-bar-wrap{width:100%;height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:6px}
 .conf-bar{height:100%;border-radius:99px;background:var(--green);transition:width .1s,background .1s;width:0%}
 
-/* Debounce timer */
 .debounce-wrap{width:100%;height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:4px}
 .debounce-bar{height:100%;border-radius:99px;background:var(--blue);width:0%;transition:width .08s}
 
-/* Output textarea */
 .output-area{width:100%;height:80px;background:var(--surface2);border:1px solid var(--border);
   border-radius:6px;color:var(--green);font-family:inherit;font-size:20px;font-weight:700;
   padding:8px;resize:none;outline:none}
 
-/* Sign test grid */
 .sign-grid{display:flex;flex-wrap:wrap;gap:5px}
 .sgbtn{padding:4px 10px;font-family:inherit;font-size:12px;border-radius:4px;
   border:1px solid var(--border);background:var(--surface2);color:var(--muted);
@@ -68,7 +65,6 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .sgbtn.testing{border-color:var(--amber);color:var(--amber);background:#f5a62312;animation:pulse .6s infinite alternate}
 @keyframes pulse{from{opacity:1}to{opacity:.5}}
 
-/* Controls */
 .ctrl-row{display:flex;gap:6px}
 .btn{padding:7px 14px;font-family:inherit;font-size:12px;border-radius:5px;
   border:1px solid var(--green);background:#00e5a018;color:var(--green);cursor:pointer;
@@ -130,27 +126,97 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
   border-radius:6px;padding:10px}
 .instr b{color:var(--amber)}
 
-/* Debounce settings */
 .setting-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
 .setting-row input[type=range]{flex:1;accent-color:var(--green)}
 .setting-val{color:var(--amber);font-weight:700;min-width:40px}
+
+/* ── TAB 3: STATIC CAPTURE ── */
+.capture-panel.active{display:flex;gap:12px;flex-wrap:wrap}
+
+/* Per-sign progress grid */
+.sign-progress-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(68px,1fr));
+  gap:6px;
+}
+.sp-cell{
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  padding:6px 4px;text-align:center;cursor:pointer;transition:all .15s;position:relative;
+}
+.sp-cell:hover{border-color:var(--green)}
+.sp-cell.active-sign{border-color:var(--green);background:#00e5a018}
+.sp-cell.done{border-color:#00e5a055}
+.sp-cell .sp-letter{font-size:18px;font-weight:900;color:var(--text);line-height:1}
+.sp-cell .sp-count{font-size:10px;color:var(--muted);margin-top:3px}
+.sp-cell .sp-bar{height:3px;border-radius:99px;background:var(--border);margin-top:4px;overflow:hidden}
+.sp-cell .sp-fill{height:100%;border-radius:99px;background:var(--green);transition:width .2s}
+.sp-cell.done .sp-letter{color:var(--green)}
+.sp-cell.done .sp-count{color:var(--green)}
+
+/* Flash animation when capture succeeds */
+@keyframes flashCapture{0%{background:#00e5a033}100%{background:#00e5a018}}
+.sp-cell.flash{animation:flashCapture .25s ease-out}
+
+/* Big capture button */
+.big-capture-btn{
+  width:100%;padding:18px;font-family:inherit;font-size:16px;font-weight:900;
+  letter-spacing:.05em;border-radius:8px;border:2px solid var(--green);
+  background:#00e5a018;color:var(--green);cursor:pointer;transition:all .15s;
+  text-transform:uppercase;
+}
+.big-capture-btn:hover{background:#00e5a033}
+.big-capture-btn:active{background:#00e5a055;transform:scale(.98)}
+.big-capture-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Keyboard hint badge */
+.kbd{display:inline-block;padding:2px 6px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:4px;font-size:10px;color:var(--muted)}
+
+/* Capture feedback flash overlay */
+.capture-flash{
+  position:fixed;inset:0;pointer-events:none;
+  background:#00e5a0;opacity:0;z-index:9999;
+  transition:opacity .05s;
+}
+.capture-flash.flash{opacity:.08}
+
+/* Total counter strip */
+.total-strip{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:8px 12px;font-size:12px;
+}
+.total-big{font-size:28px;font-weight:900;color:var(--green)}
+.total-goal{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Recent captures mini log */
+.mini-log{height:160px;overflow-y:auto;font-size:10px;line-height:1.9;
+  background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
+.mini-log::-webkit-scrollbar{width:3px}
+.mini-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+.ml-entry{color:var(--muted);display:flex;gap:8px}
+.ml-sign-badge{color:var(--green);font-weight:900;min-width:28px}
+.ml-ts{color:#2a3544;font-size:9px}
 </style>
 </head>
 <body>
 
+<!-- Screen flash on capture -->
+<div class="capture-flash" id="capture-flash"></div>
+
 <div style="text-align:center">
-  <h1>🔬 M2 Debugger v11 — All Bugs Fixed</h1>
-  <p class="sub">Tab 1: live classifier (A-Z + ILY) · Tab 2: raw landmark inspector (synced to classifier)</p>
+  <h1>🔬 M2 Debugger v12 — Static Capture (Path 3)</h1>
+  <p class="sub">Tab 1: live classifier · Tab 2: raw landmark inspector · Tab 3: static data capture (A–Z + ILY)</p>
   <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
 </div>
 
-<!-- Shared status -->
 <p class="status" id="status" style="width:100%;max-width:1100px">Loading MediaPipe model…</p>
 
 <!-- ══ TABS ══ -->
 <div class="tabs">
   <button class="tab-btn active" onclick="switchTab('classifier')">🤖 Tab 1 — Live Classifier</button>
-  <button class="tab-btn"        onclick="switchTab('rawdebug')">🔩 Tab 2 — Raw Debug / Capture</button>
+  <button class="tab-btn"        onclick="switchTab('rawdebug')">🔩 Tab 2 — Raw Debug</button>
+  <button class="tab-btn"        onclick="switchTab('capture')">📸 Tab 3 — Static Capture</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
@@ -158,14 +224,12 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 <!-- ══════════════════════════════════════════════════════════ -->
 <div class="tab-panel active" id="panel-classifier">
 
-  <!-- Left: webcam -->
   <div class="col" style="flex:2;min-width:340px">
     <div class="webcam-wrap">
       <video id="webcam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
     </div>
 
-    <!-- Detected result -->
     <div class="result-box">
       <div class="result-label" id="res-label">—</div>
       <div class="result-conf"  id="res-conf">Confidence: —</div>
@@ -175,7 +239,6 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       <div class="result-status" id="res-status">Waiting for hand…</div>
     </div>
 
-    <!-- Output box -->
     <div class="card">
       <div class="ctitle">Output text (auto-appends on hold)</div>
       <textarea class="output-area" id="output-text" readonly placeholder="Hold a sign for 1.5s to register…"></textarea>
@@ -186,10 +249,7 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     </div>
   </div>
 
-  <!-- Right: controls + sign test board -->
   <div class="col" style="flex:1;min-width:260px">
-
-    <!-- Settings -->
     <div class="card">
       <div class="ctitle">Detection settings</div>
       <div class="setting-row">
@@ -197,25 +257,19 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
         <input type="range" id="hold-slider" min="10" max="60" value="24" oninput="updateHoldTime(this.value)">
         <span class="setting-val" id="hold-val">24 frames</span>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">
-        24 frames ≈ 0.8s · 45 = 1.5s · 60 = 2s
-      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">24 frames ≈ 0.8s · 45 = 1.5s · 60 = 2s</div>
       <div style="margin-top:8px" class="setting-row">
         <span>Cooldown</span>
         <input type="range" id="cool-slider" min="10" max="90" value="30" oninput="updateCooldown(this.value)">
         <span class="setting-val" id="cool-val">30 frames</span>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">
-        30 frames ≈ 1s cooldown after each registered sign
-      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">30 frames ≈ 1s cooldown after each registered sign</div>
     </div>
 
-    <!-- Sign test board -->
     <div class="card">
       <div class="ctitle">Sign test board — click a sign to test it</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
-        Make the sign → if classifier detects it → button turns green.<br>
-        Red = wrong sign detected.
+        Make the sign → if classifier detects it → button turns green.<br>Red = wrong sign detected.
       </div>
       <div class="sign-grid" id="sign-grid"></div>
       <div class="ctrl-row" style="margin-top:8px">
@@ -223,15 +277,12 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       </div>
     </div>
 
-    <!-- Live finger states — NOW SHOWS 0/1/2 -->
     <div class="card">
       <div class="ctitle">Live finger states from classifier</div>
       <div class="fs-display" id="live-fs">—</div>
-      <!-- BUG FIX: label now says 2=extended 1=bent 0=curled (was only 0/1) -->
       <div class="fs-label">[thumb, index, middle, ring, pinky] · 2=extended 1=bent 0=curled</div>
     </div>
 
-    <!-- Frame counter -->
     <div class="card">
       <div class="ctitle">Detection log (last 8)</div>
       <div id="det-log" style="font-size:10px;color:var(--muted);line-height:1.8"></div>
@@ -272,7 +323,6 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     </div>
 
     <div class="card">
-      <!-- BUG-4 FIX label: "(synced to classifier)" -->
       <div class="ctitle">Computed tiebreakers — synced to classifier v11</div>
       <div class="tb-grid" id="tb-grid"></div>
     </div>
@@ -305,6 +355,102 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 3 — STATIC CAPTURE (PATH 3)                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-capture">
+
+  <!-- Left: webcam + big capture button -->
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam3" autoplay playsinline muted></video>
+      <canvas id="overlay3"></canvas>
+    </div>
+
+    <!-- Currently selected sign indicator -->
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:11px;color:var(--muted)">Currently capturing</div>
+      <div id="active-sign-display" style="font-size:56px;font-weight:900;color:var(--green);
+           line-height:1.1;letter-spacing:.05em">A</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        Click a letter in the grid → then capture
+      </div>
+    </div>
+
+    <!-- BIG CAPTURE BUTTON -->
+    <button class="big-capture-btn" id="btn-static-capture" onclick="captureStatic()">
+      📸 &nbsp;CAPTURE &nbsp;<span class="kbd">SPACE</span>
+    </button>
+
+    <!-- Total counter -->
+    <div class="total-strip">
+      <div>
+        <div class="total-big" id="total-count">0</div>
+        <div class="total-goal">total snapshots</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--amber);font-weight:700" id="active-sign-count-strip">
+          A: 0 / 150
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">
+          Goal: 150 per sign × 26 signs = 3,900
+        </div>
+      </div>
+    </div>
+
+    <!-- Export / clear -->
+    <div style="display:flex;gap:8px">
+      <button class="btn-capture" style="flex:2" onclick="exportStaticJSON()">
+        ⬇ Export static_data.json
+      </button>
+      <button class="btn-capture btn-clear" style="flex:1" onclick="clearStaticData()">
+        🗑 Clear all
+      </button>
+    </div>
+
+    <!-- Recent captures mini log -->
+    <div class="card">
+      <div class="ctitle">Recent captures</div>
+      <div class="mini-log" id="mini-log">No captures yet — show your hand and press Space…</div>
+    </div>
+  </div>
+
+  <!-- Right: sign progress grid + instructions -->
+  <div class="col" style="flex:1.4;min-width:280px">
+
+    <div class="instr">
+      <b>HOW TO CAPTURE (Path 3 — Static Model Training):</b><br><br>
+      1. Click a letter in the grid below to select it.<br>
+      2. Hold that ASL handshape in front of the camera.<br>
+      3. Press <b>Space</b> (or the Capture button) once per snapshot.<br>
+      4. Aim for <b>150 captures per sign</b> with variation:<br>
+         &nbsp;• Move hand left / right / closer / farther<br>
+         &nbsp;• Tilt wrist slightly each shot<br>
+         &nbsp;• Don't always hold the same position<br><br>
+      <b>J and Z are motion signs</b> — skip them here.<br>
+      <b>ILY</b> = I Love You (thumb + index + pinky).<br><br>
+      After capturing: click <b>Export static_data.json</b>.<br>
+      All 4 team members export their own file, then merge.
+    </div>
+
+    <!-- Per-sign progress grid -->
+    <div class="card">
+      <div class="ctitle">Sign progress — click to select</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Green border = selected &nbsp;|&nbsp; Bar fills toward 150 target
+      </div>
+      <div class="sign-progress-grid" id="sign-progress-grid"></div>
+    </div>
+
+    <!-- Per-sign counts table -->
+    <div class="card">
+      <div class="ctitle">Count per sign</div>
+      <div id="count-table" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;font-size:11px"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
 <!-- SCRIPT                                                     -->
 <!-- ══════════════════════════════════════════════════════════ -->
 <script type="module">
@@ -331,6 +477,15 @@ const KEY_LM=[WRIST,THUMB_CMC,THUMB_MCP,THUMB_IP,THUMB_TIP,
 
 const SIGNS=['A','E','M','N','S','T','C','O','B','D','F','G','H','I','K','L','P','Q','R','U','V','W','X','Y'];
 
+// ── STATIC CAPTURE SIGNS (Path 3) ──
+// J and Z omitted — motion signs, captured separately
+const STATIC_SIGNS = [
+  'A','B','C','D','E','F','G','H','I','K',
+  'L','M','N','O','P','Q','R','S','T','U',
+  'V','W','X','Y','ILY'
+];
+const CAPTURE_TARGET = 150;  // target captures per sign
+
 // ── State ──
 let handLandmarker=null, lastVideoTime=-1, lastLM=null;
 let paused=false;
@@ -341,10 +496,15 @@ let selectedSign='A';
 let testingSign=null;
 let detLog=[];
 
+// ── Static capture state ──
+let activeStaticSign = 'A';
+let staticCaptures   = [];   // Array of { label, landmarks: [63 numbers] }
+let recentLog        = [];   // For mini-log display
+
 // ── Tab switching ──
 window.switchTab=function(name){
   document.querySelectorAll('.tab-btn').forEach((b,i)=>{
-    b.classList.toggle('active', ['classifier','rawdebug'][i]===name);
+    b.classList.toggle('active', ['classifier','rawdebug','capture'][i]===name);
   });
   document.querySelectorAll('.tab-panel').forEach(p=>{
     p.classList.toggle('active',p.id==='panel-'+name);
@@ -357,19 +517,22 @@ async function init(){
     const stream=await navigator.mediaDevices.getUserMedia(
       {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});
 
-    // Pipe same stream to both video elements
     const v1=document.getElementById('webcam');
     const v2=document.getElementById('webcam2');
+    const v3=document.getElementById('webcam3');
     v1.srcObject=stream;
     v2.srcObject=stream;
+    v3.srcObject=stream;
 
     await new Promise(r=>{v1.onloadedmetadata=()=>v1.play().then(r);});
     v2.play();
+    v3.play();
 
     const c1=document.getElementById('overlay');
     const c2=document.getElementById('overlay2');
-    c1.width=c2.width=v1.videoWidth;
-    c1.height=c2.height=v1.videoHeight;
+    const c3=document.getElementById('overlay3');
+    c1.width=c2.width=c3.width=v1.videoWidth;
+    c1.height=c2.height=c3.height=v1.videoHeight;
 
     setStatus('Loading HandLandmarker model…','');
     const vis=await FilesetResolver.forVisionTasks(
@@ -386,6 +549,7 @@ async function init(){
     setStatus('✅ Ready — show your hand','ok');
     buildSignGrid();
     buildSignButtons();
+    buildSignProgressGrid();
     requestAnimationFrame(loop);
   }catch(e){
     setStatus('❌ '+e.message,'err');
@@ -397,8 +561,6 @@ function setStatus(msg,cls){
   el.textContent=msg;el.className='status'+(cls?' '+cls:'');
 }
 
-// ── Dominant hand picker (RIGHT hand priority) ──
-// MediaPipe mirrors handedness — "Left" reported = user's RIGHT hand (webcam mirrored)
 function pickDominantHand(landmarks, handedness){
   if(!landmarks||landmarks.length===0) return null;
   if(landmarks.length===1) return landmarks[0];
@@ -420,14 +582,21 @@ function loop(){
     if(r.landmarks&&r.landmarks.length>0){
       const c1=document.getElementById('overlay');
       const c2=document.getElementById('overlay2');
+      const c3=document.getElementById('overlay3');
       const ctx1=c1.getContext('2d'); ctx1.clearRect(0,0,c1.width,c1.height);
       const ctx2=c2.getContext('2d'); ctx2.clearRect(0,0,c2.width,c2.height);
+      const ctx3=c3.getContext('2d'); ctx3.clearRect(0,0,c3.width,c3.height);
       r.landmarks.forEach(lm=>{
         drawSkeletonOnCtx(ctx1,lm,c1.width,c1.height);
         drawSkeletonOnCtx(ctx2,lm,c2.width,c2.height);
+        drawSkeletonOnCtx(ctx3,lm,c3.width,c3.height);
       });
 
       lastLM = pickDominantHand(r.landmarks, r.handedness);
+
+      // Store for static capture button (Tab 3)
+      window._currentLandmarks = lastLM;
+
       updateClassifierPanel(lastLM);
       updateRawPanel(lastLM);
 
@@ -435,8 +604,10 @@ function loop(){
       if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
     } else {
       lastLM=null;
+      window._currentLandmarks = null;
       clearCanvas(document.getElementById('overlay'));
       clearCanvas(document.getElementById('overlay2'));
+      clearCanvas(document.getElementById('overlay3'));
       resetClassifierDisplay();
       const hc=document.getElementById('hand-count-display');
       if(hc) hc.textContent='No hands detected';
@@ -453,13 +624,9 @@ function updateClassifierPanel(lm){
   if(paused)return;
 
   const result=classifyGesture(lm);
-
-  // BUG FIX: detectFingerStates now returns raw 3-level [0,1,2] values.
-  // Previously it collapsed everything to 0/1, so Tab 1 never showed 2s.
   const fs=detectFingerStates(lm);
   document.getElementById('live-fs').textContent='['+fs.join(', ')+']';
 
-  // Confidence bar
   document.getElementById('conf-bar').style.width=result.confidence+'%';
   document.getElementById('conf-bar').style.background=
     result.confidence>=84?'var(--green)':result.confidence>=60?'var(--amber)':'var(--red)';
@@ -468,7 +635,6 @@ function updateClassifierPanel(lm){
   const label=result.label;
   document.getElementById('res-label').textContent=label??'—';
 
-  // Sign test board: highlight testing sign
   if(testingSign){
     const detected=label===testingSign&&result.matched;
     const btn=document.getElementById('sgbtn-'+testingSign);
@@ -477,7 +643,6 @@ function updateClassifierPanel(lm){
     }
   }
 
-  // Debounce / hold logic for output
   if(label&&label===lastRaw){
     holdCount++;
   } else {
@@ -485,15 +650,12 @@ function updateClassifierPanel(lm){
     lastRaw=label;
   }
 
-  // Debounce bar
   const holdPct=Math.min(100,Math.round((holdCount/holdFrames)*100));
   document.getElementById('debounce-bar').style.width=holdPct+'%';
 
-  // Cooldown
   if(coolCount>0){
     coolCount--;
-    document.getElementById('res-status').textContent=
-      `⏳ Cooldown: ${coolCount} frames`;
+    document.getElementById('res-status').textContent=`⏳ Cooldown: ${coolCount} frames`;
     return;
   }
 
@@ -511,8 +673,7 @@ function updateClassifierPanel(lm){
     addDetLog(label,result.confidence);
     document.getElementById('res-status').textContent=`✅ Registered: ${label}`;
   } else if(holdCount<holdFrames&&label){
-    document.getElementById('res-status').textContent=
-      `Hold ${label}… (${holdCount}/${holdFrames} frames)`;
+    document.getElementById('res-status').textContent=`Hold ${label}… (${holdCount}/${holdFrames} frames)`;
   } else if(!label){
     document.getElementById('res-status').textContent='No confident match';
   }
@@ -535,7 +696,6 @@ function addDetLog(label,conf){
     detLog.map(l=>`<div style="color:var(--text)">${l}</div>`).join('');
 }
 
-// Build sign grid
 function buildSignGrid(){
   const grid=document.getElementById('sign-grid');
   SIGNS.forEach(s=>{
@@ -576,7 +736,6 @@ window.updateCooldown=function(v){
 
 // ══════════════════════════════════════════════════════════
 // TAB 2 — RAW DEBUGGER
-// ALL formulas now synced to classifier.js v11
 // ══════════════════════════════════════════════════════════
 
 function buildSignButtons(){
@@ -595,88 +754,50 @@ function buildSignButtons(){
   });
 }
 
-// dist helper — 3D euclidean (matches landmarkDistance in classifier.js)
 function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);return Math.sqrt(dx*dx+dy*dy+dz*dz)}
 
-// 3-level finger state — matches classifier.js getFingerState exactly
 function getFState(lm,tip,pip,mcp){
   const tY=lm[tip].y,pY=lm[pip].y,mY=lm[mcp].y;
-  if(tY<pY&&tY<mY)return 2;  // fully extended
-  if(tY<mY)return 1;          // partially bent
-  return 0;                   // curled
+  if(tY<pY&&tY<mY)return 2;
+  if(tY<mY)return 1;
+  return 0;
 }
 
-// 3-level thumb state — matches classifier.js getThumbState exactly
 function getThumbState(lm){
   const tY=lm[THUMB_TIP].y,iY=lm[THUMB_IP].y,mY=lm[THUMB_MCP].y,cY=lm[THUMB_CMC].y;
-  if(tY<iY&&tY<mY)return 2;  // fully extended
-  if(tY<cY)return 1;          // beside fist (A position)
-  return 0;                   // tucked
+  if(tY<iY&&tY<mY)return 2;
+  if(tY<cY)return 1;
+  return 0;
 }
 
 function computeAll(lm){
-  // BUG-1 FIX: handScale = WRIST → MIDDLE_TIP (matches classifier.js v11)
-  // Previously was MIDDLE_TIP → WRIST (same distance but let's be consistent)
-  // and v9 classifier used WRIST → MIDDLE_MCP (WRONG — now fixed in classifier)
   const handScale=dist(lm[WRIST],lm[MIDDLE_TIP]);
   const fingerScale=dist(lm[INDEX_MCP],lm[WRIST]);
-
-  // Thumb state (3-level — matches classifier)
   const thumbV6=getThumbState(lm);
-
-  // BUG-4 FIX: thumbSideOfFist now uses correct landmarks THUMB_CMC and INDEX_MCP
-  // Was: lm[THUMB_TIP].y < lm[INDEX_PIP].y && lm[THUMB_TIP].y < lm[THUMB_MCP].y  ← WRONG
-  // Now: lm[THUMB_TIP].y < lm[THUMB_CMC].y && lm[THUMB_TIP].y < lm[INDEX_MCP].y  ← matches classifier
   const sideV6=lm[THUMB_TIP].y<lm[THUMB_CMC].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
-
-  // sideX (visual extra — lateral separation, not used in classifier scoring)
   const sideX=Math.abs(lm[THUMB_TIP].x-lm[INDEX_MCP].x)>fingerScale*0.40;
-
-  // BUG-4 FIX: thumbWrapped now uses normalized distances — matches classifier.js isThumbWrapped()
-  // Was: absolute Y threshold (position-dependent) ← WRONG
-  // Now: normalized dist(THUMB_TIP, INDEX_MCP) / handScale < 0.55 AND
-  //       normalized dist(THUMB_TIP, WRIST) / handScale > 0.35
   const _tipToMCP=dist(lm[THUMB_TIP],lm[INDEX_MCP]);
   const _tipToWrist=dist(lm[THUMB_TIP],lm[WRIST]);
   const wrappedV6=(_tipToMCP/handScale<0.55)&&(_tipToWrist/handScale>0.35);
-
-  // thumbBetweenFingers — matches classifier.js isThumbBetweenFingers() exactly
   const betweenY=lm[THUMB_TIP].y>lm[INDEX_PIP].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
   const xMin=Math.min(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)-0.03;
   const xMax=Math.max(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)+0.03;
   const between=betweenY&&lm[THUMB_TIP].x>=xMin&&lm[THUMB_TIP].x<=xMax;
-
   const belowPIP=lm[THUMB_TIP].y>lm[INDEX_PIP].y;
-
-  // All-tips spread — matches classifier.js computeHandDescriptor()
   const allTips=[lm[INDEX_TIP],lm[MIDDLE_TIP],lm[RING_TIP],lm[PINKY_TIP]];
   const avgX=(allTips.reduce((s,t)=>s+t.x,0)+lm[THUMB_TIP].x)/5;
   const avgY2=(allTips.reduce((s,t)=>s+t.y,0)+lm[THUMB_TIP].y)/5;
   const spread=allTips.reduce((s,t)=>s+Math.sqrt((t.x-avgX)**2+(t.y-avgY2)**2),0)/4;
-
-  // BUG-6 FIX: tipsClose now uses normalized formula — matches classifier
-  // Was: spread < 0.06 (absolute threshold — breaks at different distances) ← WRONG
-  // Now: spread / handScale < 0.38 — matches extras.tipsClose in classifier.js
   const tipsClose=spread/handScale<0.38;
-
-  // curvedIn — matches classifier: thumbToIdxTip / handScale < 0.60
   const thumbToIdxTip=dist(lm[THUMB_TIP],lm[INDEX_TIP]);
   const curvedV6=thumbToIdxTip/handScale<0.60;
-
-  // iMSpread and fingersCrossed — matches classifier
   const iMSpread=dist(lm[INDEX_TIP],lm[MIDDLE_TIP]);
   const iMSpreadNorm=iMSpread/handScale;
   const fingersCrossed=iMSpreadNorm<0.18;
-
-  // indexVertical — matches classifier: (INDEX_MCP.y - INDEX_TIP.y) / handScale > 0.40
   const indexVertical=(lm[INDEX_MCP].y-lm[INDEX_TIP].y)/handScale>0.40;
-
-  // Normalized thumb distance (THE KEY ONE for fist group tiebreakers)
   const thumbToIdxTipNorm=thumbToIdxTip/handScale;
   const spreadNorm=spread/handScale;
-
-  return {
-    thumbV6,sideV6,sideX,wrappedV6,between,belowPIP,tipsClose,curvedV6,
+  return{thumbV6,sideV6,sideX,wrappedV6,between,belowPIP,tipsClose,curvedV6,
     fingersCrossed,indexVertical,iMSpreadNorm,
     tipVsCMC:(lm[THUMB_TIP].y-lm[THUMB_CMC].y).toFixed(3),
     tipVsMCP:(lm[THUMB_TIP].y-lm[THUMB_MCP].y).toFixed(3),
@@ -688,7 +809,6 @@ function computeAll(lm){
     fingerScale:fingerScale.toFixed(3),
     handScale:handScale.toFixed(3),
     spread:spread.toFixed(4),
-    // BUG-4 FIX: add normalized values to display
     thumbToIdxTipNorm:thumbToIdxTipNorm.toFixed(3),
     spreadNorm:spreadNorm.toFixed(3),
     iMSpreadNormStr:iMSpreadNorm.toFixed(3),
@@ -697,8 +817,6 @@ function computeAll(lm){
 
 function updateRawPanel(lm){
   const vals=computeAll(lm);
-
-  // Finger states display — 3-level, matches classifier
   const tsV6=vals.thumbV6;
   const fs=[tsV6,
     getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
@@ -707,7 +825,6 @@ function updateRawPanel(lm){
     getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
   document.getElementById('fs-display2').textContent='['+fs.join(', ')+']';
 
-  // LM table
   const tbody=document.getElementById('lm-tbody');
   const ys=KEY_LM.map(i=>lm[i].y);
   const minY=Math.min(...ys),maxY=Math.max(...ys);
@@ -717,18 +834,14 @@ function updateRawPanel(lm){
     return`<tr><td class="name">${LM_NAMES[i]}</td><td class="num ${cls}">y=${y}</td><td class="num" style="color:var(--muted)">x=${x}</td></tr>`;
   }).join('');
 
-  // Tiebreaker grid — ALL synced to classifier.js v11
-  // BUG-4 FIX: sideOfFist now correct, tipsClose now correct, wrappedV6 now correct
-  // BUG-4 FIX: added thumbNorm (A tiebreaker) — critical for diagnosing fist group
-  // BUG-6 FIX: tipsClose uses normalized formula
   const rows=[
     ['thumbState (0/1/2)',vals.thumbV6,'num'],
-    ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],   // BUG-4 FIX: now uses CMC+MCP
+    ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],
     ['sideOfFist X (extra)',vals.sideX,'bool'],
-    ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'], // BUG-4 FIX: now normalized
+    ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'],
     ['thumbBetween (T tb)',vals.between,'bool'],
     ['belowPIP (Q/G/K tb)',vals.belowPIP,'bool'],
-    ['tipsClose ✅ (E/O tb)',vals.tipsClose,'bool'],  // BUG-6 FIX: now normalized
+    ['tipsClose ✅ (E/O tb)',vals.tipsClose,'bool'],
     ['curvedIn (C tb)',vals.curvedV6,'bool'],
     ['fingersCrossed (R tb)',vals.fingersCrossed,'bool'],
     ['indexVertical (D/L tb)',vals.indexVertical,'bool'],
@@ -736,11 +849,10 @@ function updateRawPanel(lm){
     ['tipΔIdxPIP',vals.tipVsIdxPIP,'delta'],
     ['tipΔIdxMCP',vals.tipVsIdxMCP,'delta'],
     ['thumb→idxTip (raw)',vals.thumbToIdxTip,'dist'],
-    // BUG-4 FIX: thumbNorm is THE critical value for fist group (A,E,M,N,S,T)
     ['thumbNorm ✅ (fist tb)',vals.thumbToIdxTipNorm,'dist'],
     ['iMSpreadNorm (U/V tb)',vals.iMSpreadNormStr,'dist'],
     ['spreadNorm (C/O tb)',vals.spreadNorm,'dist'],
-    ['handScale (WRIST→TIP)',vals.handScale,'dist'],  // BUG-1 FIX: now MIDDLE_TIP
+    ['handScale (WRIST→TIP)',vals.handScale,'dist'],
     ['spread (raw)',vals.spread,'dist'],
   ];
   document.getElementById('tb-grid').innerHTML=rows.map(([n,v,t])=>{
@@ -751,7 +863,6 @@ function updateRawPanel(lm){
   }).join('');
 }
 
-// Capture button
 document.getElementById('capture-btn').onclick=()=>{
   if(!lastLM){alert('No hand detected');return;}
   const lm=lastLM;
@@ -762,7 +873,6 @@ document.getElementById('capture-btn').onclick=()=>{
     getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
     getFState(lm,RING_TIP,RING_PIP,RING_MCP),
     getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
-  // Collapse 3-level to 0/1 for dictionary comparison
   const fsBin=fs.map(v=>v>=1?1:0);
   const log=document.getElementById('capture-log');
   const t=new Date();
@@ -785,15 +895,198 @@ document.getElementById('clear-log-btn').onclick=()=>{
   document.getElementById('capture-log').innerHTML='Hold a sign and press capture…';
 };
 
+// ══════════════════════════════════════════════════════════
+// TAB 3 — STATIC CAPTURE (PATH 3)
+// ══════════════════════════════════════════════════════════
+
+function buildSignProgressGrid(){
+  const grid = document.getElementById('sign-progress-grid');
+  grid.innerHTML = '';
+  STATIC_SIGNS.forEach(sign => {
+    const cell = document.createElement('div');
+    cell.className = 'sp-cell' + (sign === activeStaticSign ? ' active-sign' : '');
+    cell.id = 'sp-cell-' + sign;
+    cell.onclick = () => setActiveStaticSign(sign);
+    cell.innerHTML = `
+      <div class="sp-letter">${sign}</div>
+      <div class="sp-count" id="sp-count-${sign}">0 / ${CAPTURE_TARGET}</div>
+      <div class="sp-bar"><div class="sp-fill" id="sp-fill-${sign}" style="width:0%"></div></div>
+    `;
+    grid.appendChild(cell);
+  });
+  updateCountTable();
+}
+
+function setActiveStaticSign(sign){
+  activeStaticSign = sign;
+  document.querySelectorAll('.sp-cell').forEach(c => c.classList.remove('active-sign'));
+  const cell = document.getElementById('sp-cell-' + sign);
+  if(cell) cell.classList.add('active-sign');
+  document.getElementById('active-sign-display').textContent = sign;
+  updateActiveStripCount();
+}
+
+function countForSign(sign){
+  return staticCaptures.filter(c => c.label === sign).length;
+}
+
+function updateActiveStripCount(){
+  const n = countForSign(activeStaticSign);
+  document.getElementById('active-sign-count-strip').textContent =
+    `${activeStaticSign}: ${n} / ${CAPTURE_TARGET}`;
+}
+
+function updateSignCell(sign){
+  const n = countForSign(sign);
+  const countEl = document.getElementById('sp-count-' + sign);
+  const fillEl  = document.getElementById('sp-fill-'  + sign);
+  const cell    = document.getElementById('sp-cell-'  + sign);
+  if(countEl) countEl.textContent = `${n} / ${CAPTURE_TARGET}`;
+  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / CAPTURE_TARGET) * 100)) + '%';
+  if(cell){
+    if(n >= CAPTURE_TARGET) cell.classList.add('done');
+    else cell.classList.remove('done');
+  }
+}
+
+function updateCountTable(){
+  const tbl = document.getElementById('count-table');
+  tbl.innerHTML = STATIC_SIGNS.map(sign => {
+    const n = countForSign(sign);
+    const done = n >= CAPTURE_TARGET;
+    const color = done ? 'var(--green)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
+    return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:11px">
+      <span style="color:${done ? 'var(--green)' : 'var(--muted)'}">${sign}</span>
+      <span style="color:${color};font-weight:700">${n}</span>
+    </div>`;
+  }).join('');
+}
+
+function flashScreen(){
+  const el = document.getElementById('capture-flash');
+  el.classList.remove('flash');
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 120);
+}
+
+function flashSignCell(sign){
+  const cell = document.getElementById('sp-cell-' + sign);
+  if(!cell) return;
+  cell.classList.remove('flash');
+  void cell.offsetWidth;
+  cell.classList.add('flash');
+  setTimeout(() => cell.classList.remove('flash'), 280);
+}
+
+function addToMiniLog(sign, total){
+  const t = new Date();
+  const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+  recentLog.unshift({ sign, ts, total });
+  if(recentLog.length > 40) recentLog.pop();
+  const log = document.getElementById('mini-log');
+  log.innerHTML = recentLog.map(e =>
+    `<div class="ml-entry">
+      <span class="ml-sign-badge">${e.sign}</span>
+      <span style="color:var(--muted)">#${e.total}</span>
+      <span class="ml-ts">${e.ts}</span>
+    </div>`
+  ).join('');
+}
+
+// ── Main static capture function ──
+window.captureStatic = function(){
+  const lm = window._currentLandmarks;
+  if(!lm || lm.length !== 21){
+    // Brief visual error feedback
+    const btn = document.getElementById('btn-static-capture');
+    const orig = btn.textContent;
+    btn.textContent = '⚠️ No hand detected!';
+    btn.style.borderColor = 'var(--red)';
+    btn.style.color = 'var(--red)';
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 900);
+    return;
+  }
+
+  // Flatten 21 landmarks → 63 numbers [x0,y0,z0, x1,y1,z1, ...]
+  const flat = lm.flatMap(p => [p.x, p.y, p.z]);
+  staticCaptures.push({ label: activeStaticSign, landmarks: flat });
+
+  const total = staticCaptures.length;
+
+  // Update UI
+  document.getElementById('total-count').textContent = total;
+  updateSignCell(activeStaticSign);
+  updateActiveStripCount();
+  updateCountTable();
+  flashScreen();
+  flashSignCell(activeStaticSign);
+  addToMiniLog(activeStaticSign, total);
+
+  // Auto-advance to next sign if target reached
+  const n = countForSign(activeStaticSign);
+  if(n === CAPTURE_TARGET){
+    const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+    if(idx < STATIC_SIGNS.length - 1){
+      setTimeout(() => setActiveStaticSign(STATIC_SIGNS[idx + 1]), 400);
+    }
+  }
+};
+
+window.exportStaticJSON = function(){
+  if(staticCaptures.length === 0){
+    alert('No captures yet. Capture some signs first.');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(staticCaptures, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'static_data.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.clearStaticData = function(){
+  if(!confirm(`Clear all ${staticCaptures.length} captures? This cannot be undone.`)) return;
+  staticCaptures = [];
+  recentLog      = [];
+  document.getElementById('total-count').textContent = '0';
+  document.getElementById('mini-log').innerHTML = 'No captures yet — show your hand and press Space…';
+  STATIC_SIGNS.forEach(s => updateSignCell(s));
+  updateActiveStripCount();
+  updateCountTable();
+};
+
+// ── Keyboard shortcuts ──
+window.addEventListener('keydown', e => {
+  // Space → capture (Tab 3 only, don't fire when typing in a textarea)
+  if(e.code === 'Space' && document.activeElement.tagName !== 'TEXTAREA'){
+    const panel = document.getElementById('panel-capture');
+    if(panel.classList.contains('active')){
+      e.preventDefault();
+      window.captureStatic();
+    }
+  }
+  // Arrow keys to cycle through signs in Tab 3
+  if(document.getElementById('panel-capture').classList.contains('active')){
+    if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
+      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+      if(idx < STATIC_SIGNS.length - 1) setActiveStaticSign(STATIC_SIGNS[idx + 1]);
+    }
+    if(e.code === 'ArrowLeft' || e.code === 'ArrowUp'){
+      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
+      if(idx > 0) setActiveStaticSign(STATIC_SIGNS[idx - 1]);
+    }
+  }
+});
+
 // ── Skeleton draw ──
 const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
             [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
-
-function drawSkeleton(canvas,lm){
-  const ctx=canvas.getContext('2d');
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  drawSkeletonOnCtx(ctx,lm,canvas.width,canvas.height);
-}
 
 function drawSkeletonOnCtx(ctx,lm,w,h){
   ctx.strokeStyle='#FFFFFF55';ctx.lineWidth=1.5;
@@ -812,7 +1105,7 @@ function drawSkeletonOnCtx(ctx,lm,w,h){
 }
 
 function clearCanvas(canvas){
-  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  if(canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
 }
 
 init();
