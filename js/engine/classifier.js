@@ -2,29 +2,41 @@
   classifier.js — Gesture Recognition Engine
   Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
 
-  v2.0 — UPGRADED: Angle-based finger detection + weighted scoring
-  Fixes: letters not detected / confused with each other
+  v7.0 — DATA-DRIVEN FIX (based on real m2-debug.html captures)
 
-  ROOT CAUSE OF OLD BUGS:
-  - Old version only compared fingertip.y vs MCP.y (knuckle base)
-  - This made A/E/M/N/S/T all return [0,0,0,0,0] — identical pattern
-  - Classifier always picked the first match alphabetically
+  ══ ROOT CAUSE ANALYSIS (from your actual raw numbers) ══
 
-  NEW APPROACH:
-  - Uses PIP joint (middle joint) instead of MCP for better curl detection
-  - Uses angle-at-PIP to distinguish FULLY EXTENDED vs BENT vs CURLED
-    (3 levels instead of 2 binary levels)
-  - Thumb uses both X and Y distance + a spread check
-  - Weighted scoring: some fingers matter more for certain signs
-  - Signs with duplicate finger patterns get tiebreaker rules
+  BUG 1 — A → N:
+    v6 used isThumbSideOfFist: tipY < INDEX_PIP.y AND tipY < THUMB_MCP.y
+    Your A data: tipΔIdxPIP = +0.004 → thumb tip is BARELY BELOW INDEX_PIP, not above it.
+    So sideY = FALSE for A. N also has sideY=FALSE. Both [0,0,0,0,0] → N wins (listed first).
 
-  ── MEDIAPIPE LANDMARK INDICES ──
-  0  = Wrist
-  1  = Thumb CMC | 2  = Thumb MCP | 3  = Thumb IP  | 4  = Thumb Tip
-  5  = Index MCP | 6  = Index PIP | 7  = Index DIP | 8  = Index Tip
-  9  = Mid MCP   | 10 = Mid PIP   | 11 = Mid DIP   | 12 = Mid Tip
-  13 = Ring MCP  | 14 = Ring PIP  | 15 = Ring DIP  | 16 = Ring Tip
-  17 = Pinky MCP | 18 = Pinky PIP | 19 = Pinky DIP | 20 = Pinky Tip
+    REAL FIX: Use thumb-to-index-tip DISTANCE as the separator.
+    From your data:
+      A: thumbToIdxTip = 0.171  (thumb beside fist, far from index tip)
+      N: thumbToIdxTip = 0.154
+      M: thumbToIdxTip = 0.131
+      E: thumbToIdxTip = 0.029  (all tips close together)
+      S: thumbToIdxTip = 0.063
+      T: thumbToIdxTip = 0.046
+    A is the LARGEST in the fist group. New tiebreaker: minThumbIdxTip:0.15
+
+  BUG 2 — Open hand → C:
+    C has fingerStates [1,1,1,1,1] same as flat open hand.
+    The key separator: SPREAD.
+    Your C data: spread = 0.0323  (fingers curved in tight C arc)
+    A flat open hand: spread > 0.08 (fingers splayed wide)
+    New tiebreaker: maxSpread:0.07 for C (C has tight spread)
+    PLUS: thumbToIdxTip < handScale*0.65 check kept as thumbCurvedIn
+
+  ADDITIONAL FIXES from data:
+    T: between=T confirmed working ✅ (tipΔIdxPIP=0.089, between=T)
+    S: thumbToIdxTip=0.063 → maxThumbIdxTip:0.10
+    O: thumbToIdxTip=0.049, spread=0.0131 → tipsClose:true (spread<0.06) ✅
+    R vs U vs V: spread separates them well (R:0.2368, U:0.2439, V:0.2561)
+    K vs P: belowPIP separates them ✅
+    G vs Q: belowPIP separates them ✅
+    L vs D: curvedV6 — L has thumbToIdxTip=0.394 (far), D has 0.378 (similar but D=D)
 */
 
 import { SIGN_DICTIONARY } from './dictionary.js';
@@ -50,276 +62,264 @@ const PINKY_MCP  = 17;
 const PINKY_PIP  = 18;
 const PINKY_TIP  = 20;
 
-// Minimum confidence % to count as a valid match
-const CONFIDENCE_THRESHOLD = 70;
+// ─────────────────────────────────────────────────────────
+// Tuning constants
+// ─────────────────────────────────────────────────────────
+const NULL_ZONE_THRESHOLD  = 0.62;
+const CONFIDENCE_THRESHOLD = 84;
+const HOLD_FRAMES          = 24;   // ~0.8s at 30fps
+
+// ─────────────────────────────────────────────────────────
+// Temporal smoothing state
+// ─────────────────────────────────────────────────────────
+let _holdCount      = 0;
+let _lastRawLabel   = null;
+let _confirmedLabel = null;
 
 // ─────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────
 
-/**
- * Main classification function.
- * Called every frame by app.js with the dominant hand's 21 landmarks.
- *
- * @param {Array<{x:number, y:number, z:number}>} landmarks
- * @returns {{ label: string|null, confidence: number, matched: boolean }}
- */
 export function classifyGesture(landmarks) {
     if (!landmarks || landmarks.length < 21) {
+        _resetSmoothing();
         return { label: null, confidence: 0, matched: false };
     }
 
-    // Compute the full hand descriptor
     const descriptor = computeHandDescriptor(landmarks);
-
     let bestLabel = null;
     let bestScore = 0;
 
     for (const [label, signData] of Object.entries(SIGN_DICTIONARY)) {
-        const score = scoreAgainstSign(descriptor, signData, landmarks);
+        if (signData.disabled) continue;
+        const score = scoreAgainstSign(descriptor, signData);
         if (score > bestScore) {
             bestScore = score;
             bestLabel = label;
         }
     }
 
-    const confidence = Math.round(bestScore * 100);
-    const matched    = confidence >= CONFIDENCE_THRESHOLD;
+    if (bestScore < NULL_ZONE_THRESHOLD) {
+        _resetSmoothing();
+        return { label: null, confidence: 0, matched: false };
+    }
 
-    return {
-        label:      matched ? bestLabel : null,
-        confidence: confidence,
-        matched:    matched,
-    };
+    const rawConfidence = Math.round(bestScore * 100);
+
+    if (bestLabel === _lastRawLabel) {
+        _holdCount++;
+    } else {
+        _holdCount    = 1;
+        _lastRawLabel = bestLabel;
+    }
+
+    if (_holdCount >= HOLD_FRAMES && rawConfidence >= CONFIDENCE_THRESHOLD) {
+        _confirmedLabel = bestLabel;
+    }
+
+    if (_confirmedLabel !== null && rawConfidence >= CONFIDENCE_THRESHOLD) {
+        return { label: _confirmedLabel, confidence: rawConfidence, matched: true };
+    }
+
+    return { label: null, confidence: rawConfidence, matched: false };
+}
+
+export function resetClassifier() {
+    _resetSmoothing();
+}
+
+function _resetSmoothing() {
+    _holdCount      = 0;
+    _lastRawLabel   = null;
+    _confirmedLabel = null;
 }
 
 // ─────────────────────────────────────────────────────────
-// Hand descriptor — richer than binary finger states
+// Hand descriptor
 // ─────────────────────────────────────────────────────────
 
-/**
- * Computes a rich descriptor for the current hand pose.
- *
- * fingerStates:  [thumb, index, middle, ring, pinky]
- *   Each value: 2 = fully extended, 1 = partially bent, 0 = fully curled
- *
- * extras: additional geometric features for tiebreaking similar signs
- *
- * @param {Array<{x,y,z}>} lm
- * @returns {{ fingerStates: number[], extras: object }}
- */
 function computeHandDescriptor(lm) {
+    const thumbState = getThumbState(lm);
+
+    const allTips = [lm[INDEX_TIP], lm[MIDDLE_TIP], lm[RING_TIP], lm[PINKY_TIP]];
+    const avgX    = (allTips.reduce((s, t) => s + t.x, 0) + lm[THUMB_TIP].x) / 5;
+    const avgY    = (allTips.reduce((s, t) => s + t.y, 0) + lm[THUMB_TIP].y) / 5;
+    const spread  = allTips.reduce((s, t) =>
+        s + Math.sqrt((t.x - avgX) ** 2 + (t.y - avgY) ** 2), 0) / 4;
+
+    const thumbExt = thumbState >= 1;
+    const pinkExt  = getFingerState(lm, PINKY_TIP, PINKY_PIP, PINKY_MCP) >= 1;
+    const idxCurl  = getFingerState(lm, INDEX_TIP,  INDEX_PIP,  INDEX_MCP)  === 0;
+    const midCurl  = getFingerState(lm, MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP) === 0;
+    const rngCurl  = getFingerState(lm, RING_TIP,   RING_PIP,   RING_MCP)   === 0;
+
+    // ── v7.0: data-driven distances ──
+    const thumbToIdxTip = landmarkDistance(lm[THUMB_TIP], lm[INDEX_TIP]);
+    const handScale     = landmarkDistance(lm[MIDDLE_TIP], lm[WRIST]);
+
     return {
         fingerStates: [
-            getThumbState(lm),
+            thumbState,
             getFingerState(lm, INDEX_TIP,  INDEX_PIP,  INDEX_MCP),
             getFingerState(lm, MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP),
             getFingerState(lm, RING_TIP,   RING_PIP,   RING_MCP),
             getFingerState(lm, PINKY_TIP,  PINKY_PIP,  PINKY_MCP),
         ],
         extras: {
-            // Is index finger curling inward (hooked) like X?
-            indexHooked:  isFingerHooked(lm, INDEX_TIP, INDEX_PIP, INDEX_MCP),
-            // Are index + middle crossing each other like R?
-            fingersCrossed: areFingersAdjacentCrossed(lm, INDEX_TIP, MIDDLE_TIP),
-            // Spread between index and middle tips (V vs U)
-            indexMiddleSpread: landmarkDistance(lm[INDEX_TIP], lm[MIDDLE_TIP]),
-            // Spread between thumb tip and index tip (L vs G)
-            thumbIndexSpread: landmarkDistance(lm[THUMB_TIP], lm[INDEX_TIP]),
-            // Thumb tip y vs index MCP y (for T: thumb between fingers)
+            indexHooked:           lm[INDEX_PIP].y < lm[INDEX_TIP].y && lm[INDEX_TIP].y < lm[INDEX_MCP].y,
+            fingersCrossed:        Math.abs(lm[INDEX_TIP].x - lm[MIDDLE_TIP].x) < 0.03,
+            indexMiddleSpread:     landmarkDistance(lm[INDEX_TIP], lm[MIDDLE_TIP]),
             thumbTipBelowIndexPIP: lm[THUMB_TIP].y > lm[INDEX_PIP].y,
-            // All finger tips close together (O, C shape)
-            tipsClose: allTipsClose(lm),
-            // Pinky and thumb both extended (Y shape)
-            pinkThumbOnly: isPinkyThumbOnly(lm),
+            tipsClose:             spread < 0.06,
+            spread,                               // raw spread value
+            pinkThumbOnly:         thumbExt && idxCurl && midCurl && rngCurl && pinkExt,
+
+            // v7.0: distance-based tiebreakers (mirror-safe, data-validated)
+            thumbToIdxTip,                        // raw distance, used by min/maxThumbIdxTip
+            thumbWrapped:          isThumbWrapped(lm),
+            thumbBetweenFingers:   isThumbBetweenFingers(lm),
+            thumbSideOfFist:       isThumbSideOfFist(lm),
+            thumbCurvedIn:         thumbToIdxTip < handScale * 0.65,  // C: 0.143 < 0.387*0.65=0.251 ✅
         },
     };
 }
 
 // ─────────────────────────────────────────────────────────
-// Finger state (3-level: 2=extended, 1=bent, 0=curled)
+// Finger state — Y-axis only (mirror-safe)
 // ─────────────────────────────────────────────────────────
 
-/**
- * Gets the state of a non-thumb finger using the PIP joint angle.
- *
- * The PIP joint is the middle knuckle — it is the best indicator of
- * whether a finger is extended or curled.
- *
- * 2 = extended:  tip is clearly above PIP and MCP
- * 1 = bent:      tip is between PIP and MCP height
- * 0 = curled:    tip is below MCP (finger fully folded in)
- *
- * @param {Array<{x,y,z}>} lm
- * @param {number} tipIdx
- * @param {number} pipIdx
- * @param {number} mcpIdx
- * @returns {number} 0 | 1 | 2
- */
 function getFingerState(lm, tipIdx, pipIdx, mcpIdx) {
     const tipY = lm[tipIdx].y;
     const pipY = lm[pipIdx].y;
     const mcpY = lm[mcpIdx].y;
-
-    // In MediaPipe, Y increases downward.
-    // Extended: tip is ABOVE (lower Y) both PIP and MCP
-    if (tipY < pipY && tipY < mcpY) return 2;   // Fully extended
-
-    // Bent: tip is above MCP but below PIP (finger partially bent)
-    if (tipY < mcpY) return 1;                   // Partially bent
-
-    // Curled: tip is below MCP (fully folded)
-    return 0;
+    if (tipY < pipY && tipY < mcpY) return 2;  // fully extended
+    if (tipY < mcpY)                return 1;  // partially bent
+    return 0;                                   // curled
 }
 
 /**
- * Gets thumb state.
- * Thumb moves sideways so we check both axes.
- *
- * 2 = clearly extended away from palm
- * 1 = partially out
- * 0 = tucked in
+ * Thumb state using Y-axis joint chain (mirror-safe).
+ * MediaPipe Y increases downward.
  */
 function getThumbState(lm) {
-    const tipX   = lm[THUMB_TIP].x;
-    const mcpX   = lm[THUMB_MCP].x;
-    const wristX = lm[WRIST].x;
+    const tipY = lm[THUMB_TIP].y;
+    const ipY  = lm[THUMB_IP].y;
+    const mcpY = lm[THUMB_MCP].y;
+    const cmcY = lm[THUMB_CMC].y;
 
-    const tipY   = lm[THUMB_TIP].y;
-    const mcpY   = lm[THUMB_MCP].y;
+    // Fully extended: tip above IP and MCP
+    if (tipY < ipY && tipY < mcpY) return 2;
 
-    const horizDist = Math.abs(tipX - wristX);
-    const mcpDist   = Math.abs(mcpX - wristX);
-    const vertDist  = Math.abs(tipY - mcpY);
+    // Beside fist (A): tip lifted above CMC base
+    if (tipY < cmcY) return 1;
 
-    // Clear extension: tip is far from wrist horizontally
-    if (horizDist > mcpDist * 1.5) return 2;
-
-    // Some extension: tip is moderately far or moved vertically
-    if (horizDist > mcpDist * 1.1 || vertDist > 0.05) return 1;
-
+    // Tucked/curled
     return 0;
 }
 
 // ─────────────────────────────────────────────────────────
-// Scoring against a sign
+// Tiebreakers (all Y-axis / distance based — mirror-safe)
 // ─────────────────────────────────────────────────────────
 
 /**
- * Scores how closely the live hand matches a dictionary entry.
- * Uses fingerStates as primary score + extras as tiebreakers.
- *
- * @param {{ fingerStates: number[], extras: object }} descriptor
- * @param {object} signData - Entry from SIGN_DICTIONARY
- * @param {Array<{x,y,z}>} lm - Raw landmarks for extra checks
- * @returns {number} Score 0–1
+ * A: thumb beside fist — tip is displaced UP relative to fist.
+ * From data: A tipΔIdxMCP = -0.084 (tip is 0.084 ABOVE index MCP).
+ * N tipΔIdxMCP = -0.082, M = -0.045.
+ * This alone doesn't separate well, so we use minThumbIdxTip in dictionary instead.
  */
-function scoreAgainstSign(descriptor, signData, lm) {
-    // Primary: compare fingerStates
-    // Dictionary uses binary (0 or 1), we have 3-level (0, 1, 2)
-    // Map: binary 1 matches our 2 (extended) or 1 (partial)
-    //      binary 0 matches our 0 (curled)
+function isThumbSideOfFist(lm) {
+    // Tip is above CMC (thumb lifted from base) AND above INDEX_MCP (not tucked under fist)
+    return lm[THUMB_TIP].y < lm[THUMB_CMC].y && lm[THUMB_TIP].y < lm[INDEX_MCP].y;
+}
+
+/**
+ * S: thumb wrapped across front of fist.
+ * thumbToIdxTip is small (0.063) — thumb pressed against knuckles.
+ * Tip is at roughly the same Y as INDEX_MCP.
+ */
+function isThumbWrapped(lm) {
+    const tipAtKnuckleLevel = lm[THUMB_TIP].y >= lm[INDEX_MCP].y - 0.04;
+    const notTuckedUnder    = lm[THUMB_TIP].y <  lm[INDEX_MCP].y + 0.07;
+    const aboveWrist        = lm[THUMB_TIP].y >  lm[WRIST].y;
+    return tipAtKnuckleLevel && notTuckedUnder && aboveWrist;
+}
+
+/**
+ * T: thumb between index and middle fingers.
+ * Your data: between=T confirmed for T, also appears on R/U — but R/U have
+ * different fingerStates so no collision.
+ */
+function isThumbBetweenFingers(lm) {
+    const tipY    = lm[THUMB_TIP].y;
+    const tipX    = lm[THUMB_TIP].x;
+    const idxPipY = lm[INDEX_PIP].y;
+    const idxMcpY = lm[INDEX_MCP].y;
+    const idxMcpX = lm[INDEX_MCP].x;
+    const midMcpX = lm[MIDDLE_MCP].x;
+    const yInRange = tipY > idxPipY && tipY < idxMcpY;
+    const xMin = Math.min(idxMcpX, midMcpX) - 0.02;
+    const xMax = Math.max(idxMcpX, midMcpX) + 0.02;
+    return yInRange && (tipX >= xMin && tipX <= xMax);
+}
+
+// ─────────────────────────────────────────────────────────
+// Scoring
+// ─────────────────────────────────────────────────────────
+
+function scoreAgainstSign(descriptor, signData) {
+    const ref  = signData.fingerStates;
+    const live = descriptor.fingerStates;
     let primaryScore = 0;
-    const ref  = signData.fingerStates;   // [0,1,0,0,0] from dictionary
-    const live = descriptor.fingerStates; // [0,2,0,0,0] from camera
 
     for (let i = 0; i < 5; i++) {
-        if (ref[i] === 1 && live[i] >= 1) primaryScore += 1;  // Extended matches partially bent or fully extended
-        else if (ref[i] === 0 && live[i] === 0) primaryScore += 1;  // Curled matches curled
-        else if (ref[i] === 1 && live[i] === 2) primaryScore += 1;  // Extended matches fully extended
-        // Partial credit: ref says extended, we got partial
-        else if (ref[i] === 1 && live[i] === 1) primaryScore += 0.7;
+        if (ref[i] === 1) {
+            if (live[i] === 2)      primaryScore += 1.0;
+            else if (live[i] === 1) primaryScore += 0.7;
+        } else {
+            if (live[i] === 0)      primaryScore += 1.0;
+            else if (live[i] === 1) primaryScore += 0.3;
+        }
     }
 
     let score = primaryScore / 5;
 
-    // Apply tiebreaker bonuses from extras
-    const e = descriptor.extras;
-
     if (signData.tiebreakers) {
-        const tb = signData.tiebreakers;
-        let bonus = 0;
-        let bonusCount = 0;
+        const tb  = signData.tiebreakers;
+        const e   = descriptor.extras;
+        const tbW = signData.tbWeight ?? 0.28;
+        let bonus = 0, cnt = 0;
 
-        if (tb.indexHooked    !== undefined) { bonusCount++; if (e.indexHooked    === tb.indexHooked)    bonus++; }
-        if (tb.fingersCrossed !== undefined) { bonusCount++; if (e.fingersCrossed === tb.fingersCrossed) bonus++; }
-        if (tb.tipsClose      !== undefined) { bonusCount++; if (e.tipsClose      === tb.tipsClose)      bonus++; }
-        if (tb.thumbBelowPIP  !== undefined) { bonusCount++; if (e.thumbTipBelowIndexPIP === tb.thumbBelowPIP) bonus++; }
-        if (tb.pinkThumbOnly  !== undefined) { bonusCount++; if (e.pinkThumbOnly  === tb.pinkThumbOnly)  bonus++; }
+        if (tb.indexHooked         !== undefined) { cnt++; if (e.indexHooked            === tb.indexHooked)         bonus++; }
+        if (tb.fingersCrossed      !== undefined) { cnt++; if (e.fingersCrossed          === tb.fingersCrossed)      bonus++; }
+        if (tb.tipsClose           !== undefined) { cnt++; if (e.tipsClose               === tb.tipsClose)           bonus++; }
+        if (tb.thumbBelowPIP       !== undefined) { cnt++; if (e.thumbTipBelowIndexPIP   === tb.thumbBelowPIP)       bonus++; }
+        if (tb.pinkThumbOnly       !== undefined) { cnt++; if (e.pinkThumbOnly           === tb.pinkThumbOnly)       bonus++; }
+        if (tb.thumbWrapped        !== undefined) { cnt++; if (e.thumbWrapped            === tb.thumbWrapped)        bonus++; }
+        if (tb.thumbBetweenFingers !== undefined) { cnt++; if (e.thumbBetweenFingers     === tb.thumbBetweenFingers) bonus++; }
+        if (tb.thumbSideOfFist     !== undefined) { cnt++; if (e.thumbSideOfFist         === tb.thumbSideOfFist)     bonus++; }
+        if (tb.thumbCurvedIn       !== undefined) { cnt++; if (e.thumbCurvedIn           === tb.thumbCurvedIn)       bonus++; }
+        if (tb.minSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       >= tb.minSpread)            bonus++; }
+        if (tb.maxSpread           !== undefined) { cnt++; if (e.indexMiddleSpread       <= tb.maxSpread)            bonus++; }
 
-        if (tb.minSpread !== undefined) { bonusCount++; if (e.indexMiddleSpread >= tb.minSpread) bonus++; }
-        if (tb.maxSpread !== undefined) { bonusCount++; if (e.indexMiddleSpread <= tb.maxSpread) bonus++; }
+        // v7.0: thumb-to-index-tip distance gates (data-driven from debug captures)
+        if (tb.minThumbIdxTip !== undefined) { cnt++; if (e.thumbToIdxTip >= tb.minThumbIdxTip) bonus++; }
+        if (tb.maxThumbIdxTip !== undefined) { cnt++; if (e.thumbToIdxTip <= tb.maxThumbIdxTip) bonus++; }
 
-        if (bonusCount > 0) {
-            // Tiebreakers can add up to 20% to the score
-            score = score * 0.8 + (bonus / bonusCount) * 0.2;
-        }
+        // v7.0: raw spread gate (for C vs open hand)
+        if (tb.maxRawSpread !== undefined) { cnt++; if (e.spread <= tb.maxRawSpread) bonus++; }
+
+        if (cnt > 0) score = score * (1 - tbW) + (bonus / cnt) * tbW;
     }
 
     return score;
 }
 
 // ─────────────────────────────────────────────────────────
-// Extra geometric helpers
+// Legacy exports (backward compatibility)
 // ─────────────────────────────────────────────────────────
 
-/**
- * True if a finger is hooked (PIP bent, tip curling back inward).
- * Used to distinguish X from D.
- */
-function isFingerHooked(lm, tipIdx, pipIdx, mcpIdx) {
-    // Hooked: PIP is higher (lower Y) than tip but tip is still somewhat above MCP
-    return lm[pipIdx].y < lm[tipIdx].y && lm[tipIdx].y < lm[mcpIdx].y;
-}
-
-/**
- * True if two adjacent fingertips are crossed (one is to the left of the other).
- * Used to distinguish R from H/U.
- */
-function areFingersAdjacentCrossed(lm, tipAIdx, tipBIdx) {
-    return Math.abs(lm[tipAIdx].x - lm[tipBIdx].x) < 0.03;
-}
-
-/**
- * True if all four fingertips are close together (used for O, C).
- */
-function allTipsClose(lm) {
-    const tips = [lm[INDEX_TIP], lm[MIDDLE_TIP], lm[RING_TIP], lm[PINKY_TIP]];
-    const thumb = lm[THUMB_TIP];
-    const avgX = (tips.reduce((s, t) => s + t.x, 0) + thumb.x) / 5;
-    const avgY = (tips.reduce((s, t) => s + t.y, 0) + thumb.y) / 5;
-    const spread = tips.reduce((s, t) =>
-        s + Math.sqrt((t.x - avgX) ** 2 + (t.y - avgY) ** 2), 0) / 4;
-    return spread < 0.06;
-}
-
-/**
- * True if only pinky and thumb are clearly extended (Y sign).
- */
-function isPinkyThumbOnly(lm) {
-    const thumbExt  = getThumbState(lm) >= 1;
-    const indexCurl = getFingerState(lm, INDEX_TIP,  INDEX_PIP,  INDEX_MCP)  === 0;
-    const middCurl  = getFingerState(lm, MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP) === 0;
-    const ringCurl  = getFingerState(lm, RING_TIP,   RING_PIP,   RING_MCP)   === 0;
-    const pinkyExt  = getFingerState(lm, PINKY_TIP,  PINKY_PIP,  PINKY_MCP)  >= 1;
-    return thumbExt && indexCurl && middCurl && ringCurl && pinkyExt;
-}
-
-// ─────────────────────────────────────────────────────────
-// Legacy exports (for compatibility with test HTML and app.js)
-// ─────────────────────────────────────────────────────────
-
-/**
- * Returns binary [0/1] finger states for UI display in m2-test.html.
- * (The tester shows green/gray bars — binary is fine for display.)
- *
- * @param {Array<{x,y,z}>} lm
- * @returns {number[]} [thumb, index, middle, ring, pinky] — 0 or 1
- */
 export function detectFingerStates(lm) {
-    const s = computeHandDescriptor(lm).fingerStates;
-    // Convert 3-level to binary: 0=0, 1 or 2 = 1
-    return s.map(v => v >= 1 ? 1 : 0);
+    return computeHandDescriptor(lm).fingerStates.map(v => v >= 1 ? 1 : 0);
 }
 
 export function isFingerExtended(lm, tipIdx, mcpIdx) {

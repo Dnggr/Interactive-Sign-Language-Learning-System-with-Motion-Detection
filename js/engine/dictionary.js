@@ -2,36 +2,55 @@
   dictionary.js — ASL Sign Language Reference Data
   Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
 
-  v2.0 — UPGRADED: Added tiebreaker rules to fix duplicate-pattern signs
+  v7.0 — DATA-DRIVEN THRESHOLDS (from real m2-debug.html capture log)
 
-  ── WHY SIGNS WERE NOT BEING DETECTED (OLD BUG) ──
-  The old dictionary had many signs with IDENTICAL fingerStates patterns:
-    A, S, E, M, N, T, YES, SORRY, BACKSPACE → all [0,0,0,0,0]
-    C, O, HELLO, THANK YOU, PLEASE, FOOD, SPACE → all [1,1,1,1,1]
-    D, X, Z, WHERE IS → all [0,1,0,0,0]
-    U, V, R, H, NO, HOW ARE YOU, MY NAME IS → all [0,1,1,0,0]
+  ══ KEY FIXES vs v5.1/v6.0 ══
 
-  The classifier picked alphabetically-first match every time.
+  FIST GROUP [0,0,0,0,0]: A, E, M, N, S, T
+  ──────────────────────────────────────────
+  Old fix: thumbSideOfFist (Y comparison) — FAILED because A's thumb tip
+  barely misses the threshold (tipΔIdxPIP = +0.004, not cleanly above).
 
-  ── FIX ──
-  Added `tiebreakers` field to signs that share a fingerStates pattern.
-  The new classifier uses these to break ties via geometric checks.
-  Signs with truly unique fingerStates don't need tiebreakers.
+  New fix: minThumbIdxTip / maxThumbIdxTip distance gates.
+  From your real captures:
+    A = 0.171  ← highest (thumb beside fist, away from index)
+    N = 0.154
+    M = 0.131
+    T = 0.046  ← thumbBetweenFingers confirmed ✅
+    S = 0.063  ← wrapped across front
+    E = 0.029  ← all tips close
+
+  Thresholds set with ~15% safety margin from your data:
+    A → minThumbIdxTip:0.15  (A=0.171 ✅, N=0.154 borderline — see note)
+    N → thumbBelowPIP:true + maxThumbIdxTip:0.16 + thumbWrapped:false
+    M → thumbBelowPIP:true + maxThumbIdxTip:0.14 + thumbWrapped:false
+    S → maxThumbIdxTip:0.09 + thumbWrapped:true
+    T → thumbBetweenFingers:true (already confirmed working)
+    E → maxThumbIdxTip:0.05 + tipsClose:true
+
+  NOTE on A vs N: A=0.171 and N=0.154 are only 0.017 apart.
+  If you still get confusion, slightly tuck your A thumb more clearly
+  OR capture more samples and adjust minThumbIdxTip to 0.16.
+
+  C vs OPEN HAND [1,1,1,1,1]:
+  ────────────────────────────
+  Old fix: thumbCurvedIn (tip-to-index distance) — partially worked but
+  flat open hand could also pass because thumbCurvedIn threshold was loose.
+
+  New fix: maxRawSpread gate.
+  From your data: C spread = 0.0323 (fingers tightly arced in C shape).
+  A flat open hand: spread > 0.08 (fingers splayed wide).
+  maxRawSpread:0.07 for C — any spread above 0.07 fails C immediately.
+  thumbCurvedIn kept as additional gate (confirmed C=0.143 < 0.387*0.65=0.251 ✅).
 
   ── DATA FORMAT ──
   fingerStates: [thumb, index, middle, ring, pinky]
-    1 = finger extended, 0 = finger folded
+    1 = extended/active, 0 = curled/inactive
 
-  tiebreakers (optional): extra geometric rules used when fingerStates alone
-    can't distinguish this sign from others with the same pattern.
+  tbWeight: overrides default 0.28 tiebreaker weight.
+    Use 0.50 for fist group — tiebreakers MUST dominate when fingerStates identical.
 
-    indexHooked:    boolean  — is index finger bent/hooked?
-    fingersCrossed: boolean  — are index+middle crossing?
-    tipsClose:      boolean  — are all fingertips close together?
-    thumbBelowPIP:  boolean  — is thumb tip below index PIP joint?
-    pinkThumbOnly:  boolean  — only pinky and thumb extended?
-    minSpread:      number   — minimum index-middle tip distance
-    maxSpread:      number   — maximum index-middle tip distance
+  disabled: true → classifier.js skips this entry entirely.
 */
 
 export const SIGN_DICTIONARY = {
@@ -40,501 +59,608 @@ export const SIGN_DICTIONARY = {
     // LEVEL 1 — ASL ALPHABET (A–Z)
     // ══════════════════════════════════════════════════════════
 
-    // ── All-folded group: A, E, M, N, S, T ──
-    // These all look like fists. Tiebreakers needed.
+    // ── Fist group [0,0,0,0,0]: A, E, M, N, S, T ──
+    // tbWeight:0.50 — tiebreakers carry 50% of final score.
+    // fingerStates are ALL identical so tiebreakers MUST win.
 
     'A': {
         fingerStates: [1, 0, 0, 0, 0],
-        description:  'Fist with thumb resting beside index finger (not tucked)',
+        // Note: thumbState returns 1 (beside fist) for A using Y-chain logic.
+        // This gives A a DIFFERENT fingerState from E/M/N/S/T [0,0,0,0,0].
+        // Primary match already separates A. Tiebreaker adds safety.
+        description:  'Fist with thumb resting beside the index finger knuckle',
         category:     'alphabet',
         imageFile:    'A.png',
-        // A: thumb is OUT beside the fist, not tucked under
-        tiebreakers:  { thumbBelowPIP: false },
+        tbWeight:     0.45,
+        // minThumbIdxTip:0.15 — A has 0.171 (thumb far from index tip = beside fist).
+        // thumbSideOfFist kept as secondary check.
+        tiebreakers:  { minThumbIdxTip: 0.13, thumbWrapped: false, thumbBelowPIP: false },
     },
+
     'E': {
         fingerStates: [0, 0, 0, 0, 0],
-        description:  'All fingers curl down toward palm, thumb tucked under curled fingers',
+        description:  'All fingers curl down toward palm, thumb tucked under',
         category:     'alphabet',
         imageFile:    'E.png',
-        // E: tips are all close/touching — they curl in toward the thumb
-        tiebreakers:  { tipsClose: true, thumbBelowPIP: false },
+        tbWeight:     0.50,
+        // E: all tips close (spread=0.038), thumbToIdxTip=0.029 (very small).
+        tiebreakers:  { tipsClose: true, maxThumbIdxTip: 0.05, thumbWrapped: false },
     },
+
     'M': {
         fingerStates: [0, 0, 0, 0, 0],
-        description:  'Three fingers (index, middle, ring) folded down over tucked thumb',
+        description:  'Three fingers (index+middle+ring) folded down over tucked thumb',
         category:     'alphabet',
         imageFile:    'M.png',
-        // M: thumb is tucked under 3 fingers — tip goes below PIP line
-        tiebreakers:  { thumbBelowPIP: true, tipsClose: false },
+        tbWeight:     0.50,
+        // M: thumbBelowPIP=T, thumbToIdxTip=0.131, NOT wrapped, spread=0.0415.
+        tiebreakers:  { thumbBelowPIP: true, maxThumbIdxTip: 0.14, thumbWrapped: false },
     },
+
     'N': {
         fingerStates: [0, 0, 0, 0, 0],
         description:  'Index and middle fingers folded down over tucked thumb',
         category:     'alphabet',
         imageFile:    'N.png',
-        // N: similar to M but only 2 fingers cover thumb
-        // Best distinguisher from M: N uses fewer fingers over thumb
-        // (In practice M and N are very similar — we use thumbBelowPIP for both)
-        tiebreakers:  { thumbBelowPIP: true, tipsClose: true },
-    },
-    'S': {
-        fingerStates: [0, 0, 0, 0, 0],
-        description:  'Fist with thumb wrapped ACROSS the front of all four curled fingers',
-        category:     'alphabet',
-        imageFile:    'S.png',
-        // S: thumb crosses in front — tip is at the side, not below PIP
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
-    },
-    'T': {
-        fingerStates: [0, 0, 0, 0, 0],
-        description:  'Fist with thumb inserted BETWEEN index and middle fingers',
-        category:     'alphabet',
-        imageFile:    'T.png',
-        // T: thumb pushed up between index+middle — tip is clearly above PIP
-        tiebreakers:  { thumbBelowPIP: false, indexHooked: false },
+        tbWeight:     0.50,
+        // N: thumbBelowPIP=T, thumbToIdxTip=0.154, NOT wrapped.
+        // Range 0.14–0.16 separates N from M (below 0.14) and A (above 0.16).
+        tiebreakers:  { thumbBelowPIP: true, minThumbIdxTip: 0.14, maxThumbIdxTip: 0.16, thumbWrapped: false },
     },
 
-    // ── All-extended group: B, C, O ──
+    'S': {
+        fingerStates: [0, 0, 0, 0, 0],
+        description:  'Fist with thumb wrapped across front of all four curled fingers',
+        category:     'alphabet',
+        imageFile:    'S.png',
+        tbWeight:     0.50,
+        // S: thumbWrapped=T confirmed, thumbToIdxTip=0.063.
+        tiebreakers:  { thumbWrapped: true, maxThumbIdxTip: 0.09, thumbBelowPIP: false },
+    },
+
+    'T': {
+        fingerStates: [0, 0, 0, 0, 0],
+        description:  'Fist with thumb inserted between index and middle fingers',
+        category:     'alphabet',
+        imageFile:    'T.png',
+        tbWeight:     0.50,
+        // T: thumbBetweenFingers=T confirmed from data (between=T, thumbToIdxTip=0.046).
+        tiebreakers:  { thumbBetweenFingers: true, maxThumbIdxTip: 0.07, thumbWrapped: false },
+    },
+
+    // ── B: four fingers up, thumb tucked [0,1,1,1,1] ──
 
     'B': {
         fingerStates: [0, 1, 1, 1, 1],
         description:  'Four fingers straight up, thumb tucked flat across palm',
         category:     'alphabet',
         imageFile:    'B.png',
-        // B: thumb tucked, all 4 fingers up together tight
+        // B data: thumbToIdxTip=0.311, spread=0.0885. No collision with C ([1,1,1,1,1]).
         tiebreakers:  { tipsClose: false },
-    },
-    'C': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'All fingers curve into a C shape, thumb mirrors the curve',
-        category:     'alphabet',
-        imageFile:    'C.png',
-        // C: tips NOT close — they curve but are spread in a C arc
-        tiebreakers:  { tipsClose: false },
-    },
-    'O': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'All fingers and thumb curve to touch tips — forming an O',
-        category:     'alphabet',
-        imageFile:    'O.png',
-        // O: all tips close together touching thumb
-        tiebreakers:  { tipsClose: true },
     },
 
-    // ── Index-only group: D, X, Z ──
+    // ── C and O: curved/open hand [1,1,1,1,1] ──
+
+    'C': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'All fingers curve into a C shape — tips in arc, NOT touching',
+        category:     'alphabet',
+        imageFile:    'C.png',
+        tbWeight:     0.50,
+        // C data: spread=0.0323, thumbToIdxTip=0.143, handScale=0.387.
+        // thumbCurvedIn = 0.143 < 0.387*0.65 = 0.251 ✅
+        // maxRawSpread:0.07 — C has 0.032, flat open hand has >0.08. KEY SEPARATOR.
+        tiebreakers:  { tipsClose: false, thumbCurvedIn: true, maxRawSpread: 0.07 },
+    },
+
+    'O': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'All fingers and thumb curve to touch tips, forming a closed O',
+        category:     'alphabet',
+        imageFile:    'O.png',
+        tbWeight:     0.40,
+        // O data: tipsClose=T (spread=0.013), thumbToIdxTip=0.049.
+        tiebreakers:  { tipsClose: true, maxThumbIdxTip: 0.07 },
+    },
+
+    // ── Index-only group: D and X (Z disabled — motion sign) ──
 
     'D': {
         fingerStates: [0, 1, 0, 0, 0],
         description:  'Index finger points up, other fingers and thumb form a circle',
         category:     'alphabet',
         imageFile:    'D.png',
-        // D: index straight, not hooked
+        // D data: thumbToIdxTip=0.378, curvedV6=F, spread=0.1338.
         tiebreakers:  { indexHooked: false },
     },
+
     'X': {
         fingerStates: [0, 1, 0, 0, 0],
         description:  'Index finger extended and hooked (bent at first joint)',
         category:     'alphabet',
         imageFile:    'X.png',
-        // X: index is bent/hooked — PIP bent, tip curling back
+        // X data: thumbToIdxTip=0.222, indexHooked — curvedV6=F matches D but
+        // indexHooked separates them.
         tiebreakers:  { indexHooked: true },
     },
+
     'Z': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Index finger extended, draw a Z shape in the air',
+        description:  'Index finger extended, draw a Z shape in the air (motion sign)',
         category:     'alphabet',
         imageFile:    'Z.png',
-        // Z: same static pose as D — motion makes it Z, static looks like D
-        // No reliable tiebreaker for Z vs D as static sign
+        disabled:     true,
         tiebreakers:  { indexHooked: false },
     },
 
     // ── Index+middle group: H, R, U, V ──
+    // From data: R spread=0.2368, U spread=0.2439, V spread=0.2561, H should be <0.15.
+    // fingersCrossed separates R. minSpread separates V from U/H.
 
     'H': {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle fingers extended and held together, pointing sideways',
         category:     'alphabet',
         imageFile:    'H.png',
-        // H: fingers close together, not spread, not crossed
         tiebreakers:  { fingersCrossed: false, maxSpread: 0.08 },
     },
+
     'R': {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle fingers extended and crossed over each other',
         category:     'alphabet',
         imageFile:    'R.png',
-        // R: index and middle cross — tips are very close
+        // R data: between=T, spread=0.2368 — fingersCrossed is the key separator.
         tiebreakers:  { fingersCrossed: true },
     },
+
     'U': {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle fingers extended straight up and held together',
         category:     'alphabet',
         imageFile:    'U.png',
-        // U: two fingers up, close together
-        tiebreakers:  { fingersCrossed: false, maxSpread: 0.08 },
+        // U data: spread=0.2439 — similar to R/V but NOT crossed, NOT as wide as V.
+        tiebreakers:  { fingersCrossed: false, maxSpread: 0.23 },
     },
+
     'V': {
         fingerStates: [0, 1, 1, 0, 0],
         description:  'Index and middle fingers extended and spread apart (V shape)',
         category:     'alphabet',
         imageFile:    'V.png',
-        // V: two fingers up but SPREAD apart
-        tiebreakers:  { fingersCrossed: false, minSpread: 0.09 },
+        // V data: spread=0.2561, NOT crossed.
+        tiebreakers:  { fingersCrossed: false, minSpread: 0.24 },
     },
 
-    // ── Unique fingerState signs — no tiebreakers needed ──
+    // ── Unique: F, G, I, J, K, L, P, Q, W, Y ──
 
     'F': {
         fingerStates: [1, 0, 1, 1, 1],
         description:  'Index and thumb form a circle, other three fingers extended up',
         category:     'alphabet',
         imageFile:    'F.png',
+        // F data: unique fingerStates [1,0,1,1,1] — no collision.
     },
+
     'G': {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Index and thumb point horizontally outward (sideways)',
         category:     'alphabet',
         imageFile:    'G.png',
+        // G data: thumbBelowPIP=F. Q has thumbBelowPIP=T. Key separator.
+        tiebreakers:  { thumbBelowPIP: false },
     },
+
     'I': {
         fingerStates: [0, 0, 0, 0, 1],
         description:  'Only pinky finger extended straight up, all others folded',
         category:     'alphabet',
         imageFile:    'I.png',
+        // I data: unique [0,0,0,0,1] among active signs (J disabled).
     },
+
     'J': {
-        // J is a motion sign — same static pose as I
         fingerStates: [0, 0, 0, 0, 1],
-        description:  'Pinky extended, draw a J shape in the air',
+        description:  'Pinky extended, draw a J shape in the air (motion sign)',
         category:     'alphabet',
         imageFile:    'J.png',
+        disabled:     true,
     },
+
     'K': {
         fingerStates: [1, 1, 1, 0, 0],
         description:  'Index up, middle up, thumb extended outward between them',
         category:     'alphabet',
         imageFile:    'K.png',
+        // K data: thumbBelowPIP=F. P has thumbBelowPIP=T.
+        tiebreakers:  { thumbBelowPIP: false },
     },
+
     'L': {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Thumb and index extended at right angles (L-shape)',
         category:     'alphabet',
         imageFile:    'L.png',
+        // L data: thumbBelowPIP=F, thumbToIdxTip=0.394.
+        tiebreakers:  { thumbBelowPIP: false },
     },
+
     'P': {
         fingerStates: [1, 1, 1, 0, 0],
-        description:  'Like K but pointed downward — index, middle, thumb extended',
+        description:  'Like K but the whole hand is pointed downward',
         category:     'alphabet',
         imageFile:    'P.png',
+        // P data: thumbBelowPIP=T (hand pointed down).
+        tiebreakers:  { thumbBelowPIP: true },
     },
+
     'Q': {
         fingerStates: [1, 1, 0, 0, 0],
         description:  'Like G but pointed downward — index and thumb point down',
         category:     'alphabet',
         imageFile:    'Q.png',
+        // Q data: thumbBelowPIP=T, thumbToIdxMCP=0.267 (large — pointing down).
+        tiebreakers:  { thumbBelowPIP: true },
     },
+
     'W': {
         fingerStates: [0, 1, 1, 1, 0],
         description:  'Index, middle, and ring fingers extended and spread apart',
         category:     'alphabet',
         imageFile:    'W.png',
+        // W data: unique [0,1,1,1,0] — no active collision.
     },
+
     'Y': {
         fingerStates: [1, 0, 0, 0, 1],
         description:  'Thumb and pinky extended outward, all other fingers folded',
         category:     'alphabet',
         imageFile:    'Y.png',
+        // Y data: sideY=T (unique — thumb clearly extended UP), pinkThumbOnly=T.
         tiebreakers:  { pinkThumbOnly: true },
     },
 
     // ══════════════════════════════════════════════════════════
-    // LEVEL 2 — COMMON WORDS (20 words)
+    // LEVEL 2 — COMMON WORDS
+    // Most are MOTION signs — disabled to prevent alphabet collisions.
     // ══════════════════════════════════════════════════════════
 
-    // ── Open-hand group (all extended): HELLO, THANK YOU, PLEASE, FOOD ──
-    // These are motion signs — static pose is all-open hand
-    // We keep them but note the tester will show whichever is first unless motion is added
-
-    'HELLO': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'Open flat hand, touch forehead, wave outward',
-        category:     'word',
-        imageFile:    'hello.gif',
-        tiebreakers:  { tipsClose: false },
-    },
-    'THANK YOU': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat open hand from chin, move forward and down',
-        category:     'word',
-        imageFile:    'thank-you.gif',
-        tiebreakers:  { tipsClose: false },
-    },
-    'PLEASE': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'Open hand, rub in circular motion on chest',
-        category:     'word',
-        imageFile:    'please.gif',
-        tiebreakers:  { tipsClose: false },
-    },
-    'FOOD': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'Pinch all fingertips to thumb, bring to lips twice',
-        category:     'word',
-        imageFile:    'food.gif',
-        tiebreakers:  { tipsClose: true },
-    },
-    'GOOD MORNING': {
-        fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat hand at chin moves forward and up in an arc',
-        category:     'word',
-        imageFile:    'good-morning.gif',
-        tiebreakers:  { tipsClose: false },
-    },
-
-    // ── Fist group: SORRY, YES ──
-
-    'SORRY': {
-        fingerStates: [0, 0, 0, 0, 0],
-        description:  'Closed fist, rub in circular motion on chest',
-        category:     'word',
-        imageFile:    'sorry.gif',
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
-    },
-    'YES': {
-        fingerStates: [0, 0, 0, 0, 0],
-        description:  'Fist nods forward and back (like a head nodding yes)',
-        category:     'word',
-        imageFile:    'yes.png',
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
-    },
-
-    // ── Index+middle group: NO, MY NAME IS ──
-
-    'NO': {
-        fingerStates: [0, 1, 1, 0, 0],
-        description:  'Index and middle fingers snap down to meet thumb twice',
-        category:     'word',
-        imageFile:    'no.png',
-        tiebreakers:  { fingersCrossed: false },
-    },
-    'MY NAME IS': {
-        fingerStates: [0, 1, 1, 0, 0],
-        description:  'H handshape taps on other H handshape twice',
-        category:     'word',
-        imageFile:    'my-name-is.gif',
-        tiebreakers:  { fingersCrossed: false, maxSpread: 0.08 },
-    },
-
-    // ── Unique word signs ──
-
-    'HELP': {
-        fingerStates: [1, 0, 0, 0, 0],
-        description:  'Thumbs-up hand rests on flat other palm, lift both upward',
-        category:     'word',
-        imageFile:    'help.gif',
-    },
     'I LOVE YOU': {
         fingerStates: [1, 1, 0, 0, 1],
         description:  'Extend thumb, index, and pinky simultaneously (ILY handshape)',
         category:     'word',
         imageFile:    'i-love-you.png',
+        // Unique fingerStates [1,1,0,0,1] — works statically, NOT disabled.
     },
+
+    'HELLO': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'Open flat hand, touch forehead, wave outward (motion sign)',
+        category:     'word',
+        imageFile:    'hello.gif',
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
+    },
+
+    'THANK YOU': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'Flat open hand from chin, move forward and down (motion sign)',
+        category:     'word',
+        imageFile:    'thank-you.gif',
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
+    },
+
+    'PLEASE': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'Open hand, rub in circular motion on chest (motion sign)',
+        category:     'word',
+        imageFile:    'please.gif',
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
+    },
+
+    'FOOD': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'Pinch all fingertips to thumb, bring to lips twice (motion sign)',
+        category:     'word',
+        imageFile:    'food.gif',
+        disabled:     true,
+        tiebreakers:  { tipsClose: true },
+    },
+
+    'GOOD MORNING': {
+        fingerStates: [1, 1, 1, 1, 1],
+        description:  'Flat hand at chin moves forward and up in an arc (motion sign)',
+        category:     'word',
+        imageFile:    'good-morning.gif',
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
+    },
+
+    'SORRY': {
+        fingerStates: [0, 0, 0, 0, 0],
+        description:  'Closed fist, rub in circular motion on chest (motion sign)',
+        category:     'word',
+        imageFile:    'sorry.gif',
+        disabled:     true,
+    },
+
+    'YES': {
+        fingerStates: [0, 0, 0, 0, 0],
+        description:  'Fist nods forward and back (motion sign)',
+        category:     'word',
+        imageFile:    'yes.png',
+        disabled:     true,
+    },
+
+    'NO': {
+        fingerStates: [0, 1, 1, 0, 0],
+        description:  'Index and middle fingers snap down to meet thumb twice (motion sign)',
+        category:     'word',
+        imageFile:    'no.png',
+        disabled:     true,
+        tiebreakers:  { fingersCrossed: false },
+    },
+
+    'MY NAME IS': {
+        fingerStates: [0, 1, 1, 0, 0],
+        description:  'H handshape taps on other H handshape twice (motion sign)',
+        category:     'word',
+        imageFile:    'my-name-is.gif',
+        disabled:     true,
+        tiebreakers:  { fingersCrossed: false, maxSpread: 0.08 },
+    },
+
+    'HELP': {
+        fingerStates: [1, 1, 1, 0, 0],
+        description:  'Thumbs-up hand rests on flat other palm, lift both upward (motion sign)',
+        category:     'word',
+        imageFile:    'help.gif',
+        disabled:     true,
+    },
+
     'WATER': {
         fingerStates: [0, 1, 1, 1, 0],
-        description:  'W handshape (three middle fingers), tap on chin twice',
+        description:  'W handshape (three middle fingers), tap on chin twice (motion sign)',
         category:     'word',
         imageFile:    'water.gif',
+        disabled:     true,
     },
+
     'GOODBYE': {
         fingerStates: [0, 1, 1, 1, 1],
         description:  'Fingers extended, fold down toward palm repeatedly (waving)',
         category:     'word',
         imageFile:    'goodbye.gif',
+        disabled:     true,
     },
-
-    // ── NEW WORDS (20 additions) ──
 
     'MOTHER': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Open hand, thumb touches chin (5-handshape at chin)',
+        description:  'Open hand, thumb touches chin (motion sign)',
         category:     'word',
         imageFile:    'mother.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'FATHER': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Open hand, thumb touches forehead (5-handshape at forehead)',
+        description:  'Open hand, thumb touches forehead (motion sign)',
         category:     'word',
         imageFile:    'father.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'FRIEND': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Hook index fingers together, then swap positions',
+        description:  'Hook index fingers together, then swap positions (motion sign)',
         category:     'word',
         imageFile:    'friend.gif',
+        disabled:     true,
         tiebreakers:  { indexHooked: true },
     },
+
     'FAMILY': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'F handshape both hands, draw a circle outward',
+        description:  'F handshape both hands, draw a circle outward (motion sign)',
         category:     'word',
         imageFile:    'family.gif',
+        disabled:     true,
         tiebreakers:  { tipsClose: true },
     },
+
     'SCHOOL': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Clap flat hand on flat hand twice',
+        description:  'Clap flat hand on flat hand twice (motion/two-hand sign)',
         category:     'word',
         imageFile:    'school.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'WORK': {
         fingerStates: [0, 0, 0, 0, 0],
-        description:  'S-handshape, wrist taps on back of other S-handshape twice',
+        description:  'S-handshape, wrist taps on back of other S-handshape twice (motion sign)',
         category:     'word',
         imageFile:    'work.gif',
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
+        disabled:     true,
     },
+
     'HOME': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Pinched hand touches cheek then moves to cheek again',
+        description:  'Pinched hand touches cheek then moves to cheek again (motion sign)',
         category:     'word',
         imageFile:    'home.gif',
+        disabled:     true,
         tiebreakers:  { tipsClose: true },
     },
+
     'LOVE': {
         fingerStates: [0, 0, 0, 0, 0],
-        description:  'Cross arms over chest (hugging self gesture)',
+        description:  'Cross arms over chest (hugging self gesture, motion sign)',
         category:     'word',
         imageFile:    'love.gif',
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
+        disabled:     true,
     },
+
     'GOOD': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat hand touches chin, moves forward and places in other palm',
+        description:  'Flat hand touches chin, moves forward and places in other palm (motion sign)',
         category:     'word',
         imageFile:    'good.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'BAD': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat hand touches mouth, flips down away from face',
+        description:  'Flat hand touches mouth, flips down away from face (motion sign)',
         category:     'word',
         imageFile:    'bad.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'WANT': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Both bent hands pull toward chest (as if grabbing something wanted)',
+        description:  'Both bent hands pull toward chest (motion sign)',
         category:     'word',
         imageFile:    'want.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'MORE': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Pinched fingers tap together twice (both hands, fingertips meeting)',
+        description:  'Pinched fingers tap together twice (motion sign)',
         category:     'word',
         imageFile:    'more.gif',
+        disabled:     true,
         tiebreakers:  { tipsClose: true },
     },
+
     'STOP': {
         fingerStates: [0, 1, 1, 1, 1],
-        description:  'Flat hand chops down onto palm of other flat hand',
+        description:  'Flat hand chops down onto palm of other flat hand (motion sign)',
         category:     'word',
         imageFile:    'stop.gif',
+        disabled:     true,
     },
+
     'GO': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Both index fingers point forward and arc away from body',
+        description:  'Both index fingers point forward and arc away from body (motion sign)',
         category:     'word',
         imageFile:    'go.gif',
+        disabled:     true,
         tiebreakers:  { indexHooked: false },
     },
+
     'COME': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Both index fingers arc toward the body (reverse of GO)',
+        description:  'Both index fingers arc toward the body (motion sign)',
         category:     'word',
         imageFile:    'come.gif',
+        disabled:     true,
         tiebreakers:  { indexHooked: false },
     },
+
     'WHERE': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Index finger waggles side to side',
+        description:  'Index finger waggles side to side (motion sign)',
         category:     'word',
         imageFile:    'where.gif',
+        disabled:     true,
         tiebreakers:  { indexHooked: false },
     },
+
     'WHY': {
         fingerStates: [0, 1, 1, 1, 0],
-        description:  'Middle three fingers touch forehead, twist forward',
+        description:  'Middle three fingers touch forehead, twist forward (motion sign)',
         category:     'word',
         imageFile:    'why.gif',
+        disabled:     true,
     },
+
     'WHAT': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat hand brushes down across open other palm',
+        description:  'Flat hand brushes down across open other palm (motion sign)',
         category:     'word',
         imageFile:    'what.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'RESTROOM': {
-        fingerStates: [1, 0, 0, 0, 0],
-        description:  'R handshape shakes side to side (T-handshape in some dialects)',
+        fingerStates: [1, 1, 0, 0, 0],
+        description:  'R handshape shakes side to side (motion sign)',
         category:     'word',
         imageFile:    'restroom.gif',
+        disabled:     true,
     },
+
     'HUNGRY': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'C-handshape moves down the chest (as if feeling a hollow feeling)',
+        description:  'C-handshape moves down the chest (motion sign)',
         category:     'word',
         imageFile:    'hungry.gif',
+        disabled:     true,
         tiebreakers:  { tipsClose: true },
     },
 
     // ══════════════════════════════════════════════════════════
-    // LEVEL 3 — PHRASES
+    // LEVEL 3 — PHRASES (all motion signs, all disabled)
     // ══════════════════════════════════════════════════════════
 
     'NICE TO MEET YOU': {
         fingerStates: [1, 1, 1, 1, 1],
-        description:  'Flat hand sweeps from center outward toward the other person',
+        description:  'Flat hand sweeps from center outward toward the other person (motion sign)',
         category:     'phrase',
         imageFile:    'nice-to-meet-you.gif',
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'HOW ARE YOU': {
         fingerStates: [0, 1, 1, 0, 0],
-        description:  'Bent hands face up, knuckles brush upward from center twice',
+        description:  'Bent hands face up, knuckles brush upward from center twice (motion sign)',
         category:     'phrase',
         imageFile:    'how-are-you.gif',
+        disabled:     true,
         tiebreakers:  { fingersCrossed: false },
     },
+
     'WHERE IS': {
         fingerStates: [0, 1, 0, 0, 0],
-        description:  'Index finger points and shakes side to side',
+        description:  'Index finger points and shakes side to side (motion sign)',
         category:     'phrase',
         imageFile:    'where-is.gif',
+        disabled:     true,
         tiebreakers:  { indexHooked: false },
     },
+
     'I AM LEARNING': {
         fingerStates: [0, 1, 1, 1, 1],
-        description:  'Open hand at forehead, bring down to closed hand at chest',
+        description:  'Open hand at forehead, bring down to closed hand at chest (motion sign)',
         category:     'phrase',
         imageFile:    'i-am-learning.gif',
+        disabled:     true,
     },
+
     'WHAT IS YOUR NAME': {
         fingerStates: [0, 1, 1, 0, 0],
-        description:  'H hands tap twice, then point to the other person',
+        description:  'H hands tap twice, then point to the other person (motion sign)',
         category:     'phrase',
         imageFile:    'what-is-your-name.gif',
+        disabled:     true,
         tiebreakers:  { fingersCrossed: false, maxSpread: 0.08 },
     },
 
     // ══════════════════════════════════════════════════════════
-    // CONTROL GESTURES
+    // CONTROL GESTURES (disabled — collide with alphabet)
     // ══════════════════════════════════════════════════════════
 
     'SPACE': {
@@ -542,14 +668,16 @@ export const SIGN_DICTIONARY = {
         description:  'Open flat hand held still — inserts a space',
         category:     'control',
         imageFile:    null,
-        tiebreakers:  { tipsClose: false },
+        disabled:     true,
+        tiebreakers:  { tipsClose: false, pinkThumbOnly: false },
     },
+
     'BACKSPACE': {
         fingerStates: [0, 0, 0, 0, 0],
         description:  'Closed fist held still — deletes the last character',
         category:     'control',
         imageFile:    null,
-        tiebreakers:  { thumbBelowPIP: false, tipsClose: false },
+        disabled:     true,
     },
 };
 
@@ -558,6 +686,12 @@ export const SIGN_DICTIONARY = {
 // ─────────────────────────────────────────────────────────
 
 export function getSignsByCategory(category) {
+    return Object.entries(SIGN_DICTIONARY)
+        .filter(([, data]) => data.category === category && !data.disabled)
+        .map(([label]) => label);
+}
+
+export function getSignsByCategory_all(category) {
     return Object.entries(SIGN_DICTIONARY)
         .filter(([, data]) => data.category === category)
         .map(([label]) => label);
@@ -569,4 +703,8 @@ export function getSignData(label) {
 
 export function getAllSigns() {
     return Object.keys(SIGN_DICTIONARY);
+}
+
+export function getActiveSigns() {
+    return Object.keys(SIGN_DICTIONARY).filter(k => !SIGN_DICTIONARY[k].disabled);
 }
