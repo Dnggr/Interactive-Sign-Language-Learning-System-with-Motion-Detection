@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Debugger v8 — Live Classifier + Raw Debug</title>
+<title>M2 Debugger v9 — Dual Hand + Fixed Classifier</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -139,8 +139,9 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 <body>
 
 <div style="text-align:center">
-  <h1>🔬 M2 Debugger v8 — Live Classifier + Raw Landmark Inspector</h1>
-  <p class="sub">Tab 1: test the full classifier pipeline · Tab 2: capture raw numbers to tune thresholds</p>
+  <h1>🔬 M2 Debugger v9 — Dual Hand + Fixed Classifier</h1>
+  <p class="sub">Tab 1: live classifier (A-Z + ILY) · Tab 2: raw landmark inspector</p>
+  <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
 </div>
 
 <!-- Shared status -->
@@ -369,7 +370,7 @@ async function init(){
       baseOptions:{
         modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
         delegate:'GPU'},
-      runningMode:'VIDEO',numHands:1,
+      runningMode:'VIDEO',numHands:2,  // BUG-2 FIX: was 1, must be 2 for dual hand
       minHandDetectionConfidence:0.7,
       minHandPresenceConfidence:0.7,
       minTrackingConfidence:0.6,
@@ -388,6 +389,19 @@ function setStatus(msg,cls){
   el.textContent=msg;el.className='status'+(cls?' '+cls:'');
 }
 
+// ── Dominant hand picker (RIGHT hand priority) ──
+// MediaPipe mirrors handedness — "Left" reported = user's RIGHT hand (webcam mirrored)
+function pickDominantHand(landmarks, handedness){
+  if(!landmarks||landmarks.length===0) return null;
+  if(landmarks.length===1) return landmarks[0];
+  // Two hands — prefer "Left" (= user's right hand)
+  for(let i=0;i<(handedness||[]).length;i++){
+    const cat=(handedness[i]?.[0]?.categoryName)||(handedness[i]?.categoryName)||'';
+    if(cat==='Left') return landmarks[i];
+  }
+  return landmarks[0];
+}
+
 // ── Main loop ──
 function loop(){
   if(!handLandmarker){requestAnimationFrame(loop);return;}
@@ -395,17 +409,33 @@ function loop(){
   if(v1.currentTime!==lastVideoTime){
     lastVideoTime=v1.currentTime;
     const r=handLandmarker.detectForVideo(v1,performance.now());
+
     if(r.landmarks&&r.landmarks.length>0){
-      lastLM=r.landmarks[0];
-      drawSkeleton(document.getElementById('overlay'),lastLM);
-      drawSkeleton(document.getElementById('overlay2'),lastLM);
+      // BUG-2 FIX: Draw ALL detected hands on both canvases
+      const c1=document.getElementById('overlay');
+      const c2=document.getElementById('overlay2');
+      const ctx1=c1.getContext('2d'); ctx1.clearRect(0,0,c1.width,c1.height);
+      const ctx2=c2.getContext('2d'); ctx2.clearRect(0,0,c2.width,c2.height);
+      r.landmarks.forEach(lm=>{
+        drawSkeletonOnCtx(ctx1,lm,c1.width,c1.height);
+        drawSkeletonOnCtx(ctx2,lm,c2.width,c2.height);
+      });
+
+      // Classify using dominant (right) hand
+      lastLM = pickDominantHand(r.landmarks, r.handedness);
       updateClassifierPanel(lastLM);
       updateRawPanel(lastLM);
+
+      // Update hand count display
+      const hc=document.getElementById('hand-count-display');
+      if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
     } else {
       lastLM=null;
       clearCanvas(document.getElementById('overlay'));
       clearCanvas(document.getElementById('overlay2'));
       resetClassifierDisplay();
+      const hc=document.getElementById('hand-count-display');
+      if(hc) hc.textContent='No hands detected';
     }
   }
   requestAnimationFrame(loop);
@@ -687,19 +717,26 @@ const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11]
             [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
 
 function drawSkeleton(canvas,lm){
+  // Legacy wrapper — still used by any remaining direct calls
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawSkeletonOnCtx(ctx,lm,canvas.width,canvas.height);
+}
+
+// BUG-2 FIX: ctx-based version so multiple hands can be drawn per frame
+// without clearing the canvas between each hand
+function drawSkeletonOnCtx(ctx,lm,w,h){
   ctx.strokeStyle='#FFFFFF55';ctx.lineWidth=1.5;
   for(const[a,b]of CONN){
     ctx.beginPath();
-    ctx.moveTo(lm[a].x*canvas.width,lm[a].y*canvas.height);
-    ctx.lineTo(lm[b].x*canvas.width,lm[b].y*canvas.height);
+    ctx.moveTo(lm[a].x*w,lm[a].y*h);
+    ctx.lineTo(lm[b].x*w,lm[b].y*h);
     ctx.stroke();
   }
   for(let i=0;i<21;i++){
     const tip=[4,8,12,16,20].includes(i);
     ctx.beginPath();
-    ctx.arc(lm[i].x*canvas.width,lm[i].y*canvas.height,tip?6:3.5,0,Math.PI*2);
+    ctx.arc(lm[i].x*w,lm[i].y*h,tip?6:3.5,0,Math.PI*2);
     ctx.fillStyle=tip?'#FFFFFF':'#00e5a0';ctx.fill();
   }
 }
