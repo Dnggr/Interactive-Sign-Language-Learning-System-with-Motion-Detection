@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M2 Capture — Static & Motion Data Collection</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+  :root {
+    --bg:       #0a0e17;
+    --surface:  #111827;
+    --surface2: #1a2235;
+    --border:   #1f2d3d;
+    --text:     #e2e8f0;
+    --muted:    #4a5568;
+    --green:    #00e5a0;
+    --amber:    #f5a623;
+    --red:      #ff5f6d;
+    --purple:   #a78bfa;
+    --blue:     #60a5fa;
+    --font:     'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+  }
+
+  /* ── HEADER ── */
+  .page-header {
+    text-align: center;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .page-header h1 {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    color: var(--green);
+  }
+  .page-header .sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .page-header .hand-status {
+    font-size: 12px;
+    color: var(--green);
+    margin-top: 6px;
+    min-height: 18px;
+  }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    text-align: center;
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    margin-bottom: 14px;
+    color: var(--muted);
+  }
+  .status-bar.ok  { color: var(--green); border-color: #00e5a033; }
+  .status-bar.err { color: var(--red);   border-color: #ff5f6d33; }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .tab-btn {
+    padding: 7px 18px;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: .02em;
+  }
+  .tab-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tab-btn.active {
+    background: #00e5a015;
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .tab-btn.motion-tab.active {
+    background: #a78bfa15;
+    border-color: var(--purple);
+    color: var(--purple);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+
+  /* ── LAYOUT ── */
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .ctitle {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  /* ── WEBCAM ── */
+  .webcam-wrap {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+    aspect-ratio: 16/9;
+  }
+  .webcam-wrap video,
+  .webcam-wrap canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  .webcam-wrap canvas { background: transparent; }
+
+  /* ── BIG BUTTONS ── */
+  .big-btn {
+    width: 100%;
+    padding: 18px;
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: .05em;
+    border-radius: 8px;
+    border: 2px solid var(--green);
+    background: #00e5a015;
+    color: var(--green);
+    cursor: pointer;
+    transition: all .15s;
+    text-transform: uppercase;
+  }
+  .big-btn:hover   { background: #00e5a030; }
+  .big-btn:active  { background: #00e5a050; transform: scale(.98); }
+  .big-btn:disabled{ opacity: .4; cursor: not-allowed; }
+  .big-btn.purple  { border-color: var(--purple); background: #a78bfa15; color: var(--purple); }
+  .big-btn.purple:hover  { background: #a78bfa28; }
+  .big-btn.recording {
+    border-color: var(--red);
+    background: #ff5f6d18;
+    color: var(--red);
+    animation: recordPulse .6s infinite alternate;
+  }
+  @keyframes recordPulse { from { background: #ff5f6d18; } to { background: #ff5f6d33; } }
+
+  .btn-row { display: flex; gap: 8px; }
+  .btn {
+    padding: 8px 16px;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid var(--green);
+    background: #00e5a015;
+    color: var(--green);
+    cursor: pointer;
+    transition: all .15s;
+    flex: 1;
+  }
+  .btn:hover { background: #00e5a030; }
+  .btn.red   { border-color: var(--red);   background: #ff5f6d10; color: var(--red); }
+  .btn.red:hover   { background: #ff5f6d25; }
+  .btn.purple { border-color: var(--purple); background: #a78bfa10; color: var(--purple); }
+  .btn.purple:hover { background: #a78bfa25; }
+
+  .kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* ── TOTALS STRIP ── */
+  .totals-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .totals-big  { font-size: 32px; font-weight: 900; color: var(--green); line-height: 1; }
+  .totals-big.purple { color: var(--purple); }
+  .totals-label{ font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .totals-right { text-align: right; font-size: 12px; font-weight: 700; color: var(--amber); }
+  .totals-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ── ACTIVE SIGN DISPLAY ── */
+  .active-sign-box {
+    text-align: center;
+    padding: 10px 0 6px;
+  }
+  .active-sign-label { font-size: 10px; color: var(--muted); }
+  .active-sign-big   { font-size: 64px; font-weight: 900; color: var(--green); line-height: 1.1; letter-spacing: .04em; }
+  .active-sign-big.purple { color: var(--purple); font-size: 36px; }
+  .active-sign-hint  { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  /* ── PROGRESS GRID ── */
+  .sign-progress-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 5px;
+  }
+  .sp-cell {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 4px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .15s;
+    position: relative;
+  }
+  .sp-cell:hover       { border-color: var(--green); }
+  .sp-cell.active-sign { border-color: var(--green); background: #00e5a015; }
+  .sp-cell.active-sign.purple-active { border-color: var(--purple); background: #a78bfa10; }
+  .sp-cell.done        { border-color: #00e5a040; }
+  .sp-cell .sp-letter  { font-size: 14px; font-weight: 900; color: var(--text); line-height: 1; }
+  .sp-cell .sp-count   { font-size: 9px; color: var(--muted); margin-top: 3px; }
+  .sp-cell .sp-bar     { height: 3px; border-radius: 99px; background: var(--border); margin-top: 4px; overflow: hidden; }
+  .sp-cell .sp-fill    { height: 100%; border-radius: 99px; background: var(--green); transition: width .2s; }
+  .sp-cell.done .sp-letter { color: var(--green); }
+  .sp-cell.done .sp-count  { color: var(--green); }
+
+  /* motion variant */
+  .sp-cell .sp-fill.purple { background: var(--purple); }
+  .sp-cell:hover.motion-cell { border-color: var(--purple); }
+
+  .sp-del {
+    position: absolute; top: 2px; right: 3px;
+    font-size: 8px; line-height: 1;
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    padding: 1px 2px; border-radius: 2px;
+    transition: color .1s;
+    display: none;
+  }
+  .sp-cell:hover .sp-del { display: block; }
+  .sp-del:hover { color: var(--red) !important; }
+
+  @keyframes flashCapture { 0% { background: #00e5a033; } 100% { background: #00e5a015; } }
+  .sp-cell.flash { animation: flashCapture .25s ease-out; }
+
+  /* ── COUNT TABLE ── */
+  .count-table-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; }
+  .ct-row {
+    display: flex; justify-content: space-between;
+    padding: 2px 0; border-bottom: 1px solid #1f273333;
+    font-size: 11px;
+  }
+
+  /* ── MINI LOG ── */
+  .mini-log {
+    height: 130px; overflow-y: auto;
+    font-size: 10px; line-height: 1.9;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+  }
+  .mini-log::-webkit-scrollbar { width: 3px; }
+  .mini-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  .ml-entry { color: var(--muted); display: flex; gap: 8px; }
+  .ml-sign-badge { color: var(--green); font-weight: 900; min-width: 32px; }
+  .ml-sign-badge.purple { color: var(--purple); }
+  .ml-ts { color: #2a3544; font-size: 9px; }
+
+  /* ── RECORDING PROGRESS BAR ── */
+  .rec-progress-wrap {
+    display: none;
+    margin-bottom: 4px;
+  }
+  .rec-label {
+    font-size: 11px; color: var(--red); text-align: center; margin-bottom: 4px;
+  }
+  .seq-bar-outer { width: 100%; height: 10px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .seq-bar-inner { height: 100%; border-radius: 99px; background: var(--red); transition: width .05s; width: 0%; }
+
+  /* ── SETTINGS ── */
+  .setting-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--muted); margin-bottom: 6px;
+  }
+  .setting-row input[type=range] { flex: 1; accent-color: var(--green); }
+  .setting-val { color: var(--amber); font-weight: 700; min-width: 40px; }
+
+  /* ── INSTRUCTIONS BOX ── */
+  .instr {
+    font-size: 11px; color: var(--muted); line-height: 1.7;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px;
+  }
+  .instr b { color: var(--amber); }
+
+  /* ── SCREEN FLASH ── */
+  .capture-flash {
+    position: fixed; inset: 0; pointer-events: none;
+    background: var(--green); opacity: 0; z-index: 9999;
+    transition: opacity .05s;
+  }
+  .capture-flash.flash { opacity: .08; }
+  .capture-flash.rec-flash { background: var(--red); opacity: .12; }
+</style>
+</head>
+<body>
+
+<div class="capture-flash" id="capture-flash"></div>
+
+<div class="page-header">
+  <h1>📸 M2 Capture Tool — Static & Motion Training Data</h1>
+  <div class="sub">Tab 1: Static signs (A–Z + ILY) &nbsp;|&nbsp; Tab 2: Motion signs (words/phrases)</div>
+  <div class="hand-status" id="hand-status">Waiting for hands…</div>
+</div>
+
+<div class="status-bar" id="status-bar">Loading MediaPipe model…</div>
+
+<div class="tabs">
+  <button class="tab-btn active"      onclick="switchTab('static')">📸 Static Capture (A–Z)</button>
+  <button class="tab-btn motion-tab"  onclick="switchTab('motion')">🎬 Motion Capture (Words)</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB 1 — STATIC CAPTURE                                     -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-static">
+
+  <!-- LEFT: webcam + capture controls -->
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam-static" autoplay playsinline muted></video>
+      <canvas id="canvas-static"></canvas>
+    </div>
+
+    <div class="active-sign-box">
+      <div class="active-sign-label">Currently capturing</div>
+      <div class="active-sign-big" id="active-sign-display">A</div>
+      <div class="active-sign-hint">Click a letter below → then capture &nbsp;|&nbsp; ← → arrow keys to cycle</div>
+    </div>
+
+    <button class="big-btn" id="btn-static-capture" onclick="captureStatic()">
+      📸 &nbsp;CAPTURE &nbsp;<span class="kbd">SPACE</span>
+    </button>
+
+    <div class="totals-strip">
+      <div>
+        <div class="totals-big" id="static-total-count">0</div>
+        <div class="totals-label">total snapshots</div>
+      </div>
+      <div class="totals-right">
+        <div id="active-sign-strip">A: 0 / 150</div>
+        <div class="totals-sub">Goal: 150 per sign × 25 signs = 3,750</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" style="flex:2" onclick="exportStaticJSON()">⬇ Export static_data.json</button>
+      <button class="btn red" style="flex:1" onclick="clearStaticData()">🗑 Clear all</button>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Recent captures</div>
+      <div class="mini-log" id="static-mini-log">No captures yet — show your hand and press Space…</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: grid + instructions -->
+  <div class="col" style="flex:1.5;min-width:280px">
+
+    <div class="instr">
+      <b>HOW TO CAPTURE:</b><br><br>
+      1. Click a letter in the grid to select it.<br>
+      2. Hold that sign clearly in front of the camera.<br>
+      3. Press <b>Space</b> (or the Capture button).<br>
+      4. Repeat — aim for <b>150 per sign</b>.<br><br>
+      <b>Variation tips (IMPORTANT):</b><br>
+      &nbsp;• Move hand left / right / closer / farther<br>
+      &nbsp;• Tilt wrist slightly each shot<br>
+      &nbsp;• Don't always hold the same position<br><br>
+      <b>J and Z are motion signs</b> — skip them here.<br>
+      <b>ILY</b> = I Love You (thumb + index + pinky).<br><br>
+      After all signs: click <b>Export</b>. Save file into <b>data/</b> folder.
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Sign progress — click to select &nbsp;|&nbsp; hover → ✕ delete</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Green border = selected &nbsp;|&nbsp; bar fills toward 150 target
+      </div>
+      <div class="sign-progress-grid" id="static-progress-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Count per sign</div>
+      <div class="count-table-grid" id="static-count-table"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB 2 — MOTION CAPTURE                                     -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-motion">
+
+  <!-- LEFT: webcam + record controls -->
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam-motion" autoplay playsinline muted></video>
+      <canvas id="canvas-motion"></canvas>
+    </div>
+
+    <div class="active-sign-box">
+      <div class="active-sign-label">Currently capturing motion for</div>
+      <div class="active-sign-big purple" id="active-motion-display">HELLO</div>
+      <div class="active-sign-hint">Click a word in the grid → then record &nbsp;|&nbsp; ← → to cycle</div>
+    </div>
+
+    <!-- Recording progress -->
+    <div class="rec-progress-wrap" id="rec-progress-wrap">
+      <div class="rec-label">
+        🔴 Recording… <span id="rec-frame-count">0</span> / <span id="rec-target-frames">30</span> frames
+      </div>
+      <div class="seq-bar-outer">
+        <div class="seq-bar-inner" id="seq-bar"></div>
+      </div>
+    </div>
+
+    <button class="big-btn purple" id="btn-motion-record" onclick="recordMotion()">
+      🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>
+    </button>
+
+    <div class="totals-strip">
+      <div>
+        <div class="totals-big purple" id="motion-total-count">0</div>
+        <div class="totals-label">total sequences</div>
+      </div>
+      <div class="totals-right">
+        <div id="active-motion-strip">HELLO: 0 / 150</div>
+        <div class="totals-sub">Goal: 150 sequences × word</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn purple" style="flex:2" onclick="exportMotionJSON()">⬇ Export sequence_data.json</button>
+      <button class="btn red"    style="flex:1" onclick="clearMotionData()">🗑 Clear all</button>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Sequence settings</div>
+      <div class="setting-row">
+        <span>Frames per sequence</span>
+        <input type="range" id="frames-slider" min="15" max="60" value="30"
+               oninput="updateFrameTarget(this.value)">
+        <span class="setting-val" id="frames-val">30</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">
+        30 frames ≈ 1 second of motion at 30fps.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Recent sequences</div>
+      <div class="mini-log" id="motion-mini-log">No sequences yet — press R to record…</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: word grid + instructions -->
+  <div class="col" style="flex:1.5;min-width:280px">
+
+    <div class="instr">
+      <b>HOW TO RECORD A MOTION SEQUENCE:</b><br><br>
+      1. Click a word in the grid to select it.<br>
+      2. Rest your hand <b>below frame</b> or hold still.<br>
+      3. Press <b>R</b> (or the Record button).<br>
+      4. Immediately perform the sign naturally.<br>
+      5. Hold still at the end — recording stops automatically.<br><br>
+      One press = one sequence = 30 consecutive frames.<br>
+      Aim for <b>150 sequences per word</b>.<br>
+      Each recording takes ~1–3 seconds.<br><br>
+      <b>Variation tips:</b><br>
+      &nbsp;• Vary speed (slow, normal, fast)<br>
+      &nbsp;• Vary hand position (left / right / closer / far)<br>
+      &nbsp;• Don't start from the same position every time<br><br>
+      Export saves as <b>sequence_data.json</b> → put into <b>data/</b> folder.
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Word progress — click to select &nbsp;|&nbsp; hover → ✕ delete</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Purple border = selected &nbsp;|&nbsp; bar fills toward 150 target
+      </div>
+      <div class="sign-progress-grid" id="motion-progress-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Count per word</div>
+      <div class="count-table-grid" id="motion-count-table"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/m2-capture.js"></script>
+</body>
+</html>
