@@ -1,1574 +1,950 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Debugger v13 — Static + Motion Capture (Path 3)</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>M2 — Model Accuracy Tester</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#080b0e;--surface:#0f1318;--surface2:#161b22;--border:#1f2733;
-  --green:#00e5a0;--amber:#f5a623;--red:#ff5f6d;--blue:#4f9cf9;--purple:#a78bfa;
-  --text:#dde3ee;--muted:#4a5568;
-}
-body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
-  display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px;min-height:100vh}
+  /* ── DESIGN TOKENS ─────────────────────────────────────── */
+  :root {
+    --bg:         #0a0c10;
+    --surface:    #111318;
+    --border:     #1e2230;
+    --green:      #00e5a0;
+    --amber:      #f5a623;
+    --red:        #ff4a6e;
+    --blue:       #4d9fff;
+    --purple:     #9f7aea;
+    --muted:      #4a5568;
+    --text:       #e2e8f0;
+    --text-dim:   #8899aa;
+    --font-mono:  'JetBrains Mono', 'Fira Mono', monospace;
+    --font-ui:    'Syne', 'Segoe UI', sans-serif;
+    --radius:     8px;
+  }
 
-h1{font-size:15px;font-weight:700;color:var(--green);letter-spacing:.05em}
-p.sub{font-size:11px;color:var(--muted);margin-top:4px}
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-.tabs{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:100%;max-width:1100px}
-.tab-btn{flex:1;padding:8px;font-family:inherit;font-size:12px;font-weight:700;
-  border:none;background:var(--surface2);color:var(--muted);cursor:pointer;letter-spacing:.05em;
-  border-right:1px solid var(--border);transition:all .12s}
-.tab-btn:last-child{border-right:none}
-.tab-btn.active{background:#00e5a018;color:var(--green);border-bottom:2px solid var(--green)}
-.tab-panel{display:none;width:100%;max-width:1100px}
-.tab-panel.active{display:flex;gap:12px;flex-wrap:wrap}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-.row{display:flex;gap:12px;width:100%;max-width:1100px;flex-wrap:wrap}
-.col{display:flex;flex-direction:column;gap:10px;flex:1;min-width:280px}
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
 
-/* Webcam */
-.webcam-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#000;
-  border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-#webcam,#overlay,#webcam2,#overlay2,#webcam3,#overlay3,#webcam4,#overlay4{
-  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-#overlay,#overlay2,#overlay3,#overlay4{z-index:2;pointer-events:none}
+  /* ── TOP BAR ────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .topbar-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--green);
+  }
+  .topbar-sub {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+  .topbar-spacer { flex: 1; }
+  .topbar-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(0,229,160,.1);
+    color: var(--green);
+    border: 1px solid rgba(0,229,160,.25);
+  }
 
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
-.ctitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
-  color:var(--muted);margin-bottom:8px}
+  /* ── STATUS BAR ─────────────────────────────────────────── */
+  #status-bar {
+    text-align: center;
+    padding: 7px 16px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    transition: color .3s;
+  }
+  #status-bar.ok  { color: var(--green); }
+  #status-bar.err { color: var(--red);   }
+  #status-bar.loading { color: var(--amber); }
 
-/* ── TAB 1: LIVE CLASSIFIER ── */
-.result-box{text-align:center;padding:16px 8px;background:var(--surface2);
-  border:1px solid var(--border);border-radius:8px}
-.result-label{font-size:48px;font-weight:900;color:var(--green);letter-spacing:.05em;min-height:60px}
-.result-conf{font-size:13px;color:var(--amber);margin-top:4px}
-.result-status{font-size:11px;color:var(--muted);margin-top:2px}
+  /* ── TAB NAV ────────────────────────────────────────────── */
+  .tab-nav {
+    display: flex;
+    gap: 2px;
+    padding: 10px 16px 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 8px 18px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color .2s, border-color .2s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover  { color: var(--text); }
+  .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
 
-.conf-bar-wrap{width:100%;height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:6px}
-.conf-bar{height:100%;border-radius:99px;background:var(--green);transition:width .1s,background .1s;width:0%}
+  /* ── PANEL BASE ─────────────────────────────────────────── */
+  .tab-panel { display: none; flex: 1; overflow-y: auto; }
+  .tab-panel.active { display: flex; }
 
-.debounce-wrap{width:100%;height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:4px}
-.debounce-bar{height:100%;border-radius:99px;background:var(--blue);width:0%;transition:width .08s}
+  /* ── SHARED LAYOUT ──────────────────────────────────────── */
+  .pane-left {
+    width: 340px;
+    min-width: 300px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .pane-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 16px;
+  }
 
-.output-area{width:100%;height:80px;background:var(--surface2);border:1px solid var(--border);
-  border-radius:6px;color:var(--green);font-family:inherit;font-size:20px;font-weight:700;
-  padding:8px;resize:none;outline:none}
+  /* ── CAMERA BLOCK ───────────────────────────────────────── */
+  .cam-block {
+    position: relative;
+    background: #000;
+    aspect-ratio: 16/9;
+    flex-shrink: 0;
+  }
+  .cam-block video,
+  .cam-block canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+  }
+  .cam-block canvas { pointer-events: none; }
+  .hand-status-pill {
+    position: absolute;
+    bottom: 8px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,.7);
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(0,229,160,.3);
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+  }
 
-.sign-grid{display:flex;flex-wrap:wrap;gap:5px}
-.sgbtn{padding:4px 10px;font-family:inherit;font-size:12px;border-radius:4px;
-  border:1px solid var(--border);background:var(--surface2);color:var(--muted);
-  cursor:pointer;font-weight:700;transition:all .12s}
-.sgbtn.ok{border-color:var(--green);color:var(--green);background:#00e5a012}
-.sgbtn.fail{border-color:var(--red);color:var(--red);background:#ff5f6d12}
-.sgbtn.testing{border-color:var(--amber);color:var(--amber);background:#f5a62312;animation:pulse .6s infinite alternate}
-@keyframes pulse{from{opacity:1}to{opacity:.5}}
+  /* ── SECTION HEADING ────────────────────────────────────── */
+  .sec-hd {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 14px 6px;
+    border-bottom: 1px solid var(--border);
+  }
 
-.ctrl-row{display:flex;gap:6px}
-.btn{padding:7px 14px;font-family:inherit;font-size:12px;border-radius:5px;
-  border:1px solid var(--green);background:#00e5a018;color:var(--green);cursor:pointer;
-  font-weight:700;transition:all .15s}
-.btn:hover{background:#00e5a033}
-.btn.red{border-color:var(--red);background:#ff5f6d10;color:var(--red)}
-.btn.red:hover{background:#ff5f6d22}
-.btn.amber{border-color:var(--amber);background:#f5a62310;color:var(--amber)}
+  /* ── RESULT CARD ────────────────────────────────────────── */
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: border-color .3s;
+  }
+  .result-card.matched { border-color: var(--green); }
+  .result-card.no-hand { border-color: var(--border); opacity: .5; }
 
-/* ── TAB 2: RAW DEBUGGER ── */
-.sign-btns{display:flex;flex-wrap:wrap;gap:5px}
-.sbtn{padding:4px 10px;font-family:inherit;font-size:12px;border-radius:4px;
-  border:1px solid var(--border);background:var(--surface2);color:var(--muted);
-  cursor:pointer;font-weight:700;transition:all .12s}
-.sbtn:hover{border-color:var(--green);color:var(--green)}
-.sbtn.active{background:#00e5a022;border-color:var(--green);color:var(--green)}
+  .result-label {
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--green);
+    min-width: 80px;
+    text-align: center;
+  }
+  .result-label.no-match { color: var(--muted); }
+  .result-label.unmatched { color: var(--amber); }
 
-.raw-table{width:100%;border-collapse:collapse;font-size:11px}
-.raw-table td,.raw-table th{padding:3px 6px;border-bottom:1px solid var(--border);white-space:nowrap}
-.raw-table th{color:var(--muted);font-weight:600;font-size:10px;text-align:left}
-.raw-table .num{color:var(--amber);text-align:right;font-family:inherit}
-.raw-table .name{color:var(--text)}
-.raw-table .hi{color:var(--green);font-weight:700}
-.raw-table .lo{color:var(--red);font-weight:700}
+  .result-meta { flex: 1; }
+  .result-conf {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text);
+    line-height: 1;
+  }
+  .result-conf.high   { color: var(--green); }
+  .result-conf.mid    { color: var(--amber); }
+  .result-conf.low    { color: var(--red); }
 
-.tb-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
-.tb-row{font-size:11px;display:flex;justify-content:space-between;padding:2px 0;
-  border-bottom:1px solid #1f273344}
-.tb-name{color:var(--muted)}
-.tb-val{font-weight:700}
-.tb-val.t{color:var(--green)}
-.tb-val.f{color:var(--red)}
-.tb-val.n{color:var(--amber)}
+  .result-status {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    margin-top: 4px;
+  }
 
-.capture-log{height:200px;overflow-y:auto;font-size:10px;line-height:1.7;
-  background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
-.capture-log::-webkit-scrollbar{width:3px}
-.capture-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
-.cl-entry{color:var(--muted);border-bottom:1px solid #1f273333;padding:2px 0}
-.cl-sign{color:var(--green);font-weight:700;margin-right:6px}
+  /* CONF BAR */
+  .conf-bar-wrap {
+    background: var(--border);
+    border-radius: 4px;
+    height: 6px;
+    width: 100%;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+  .conf-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--muted);
+    transition: width .15s ease, background .3s;
+  }
 
-.fs-display{font-size:22px;font-weight:700;color:var(--green);letter-spacing:.05em;
-  text-align:center;padding:4px 0}
-.fs-label{font-size:10px;color:var(--muted);text-align:center;margin-top:2px}
+  /* ── TOP-5 PREDICTIONS ──────────────────────────────────── */
+  .top5-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .top5-hd {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .top5-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s;
+  }
+  .top5-row:last-child { border-bottom: none; }
+  .top5-row.winner { background: rgba(0,229,160,.06); }
+  .top5-rank { font-family: var(--font-mono); font-size: 10px; color: var(--muted); width: 16px; }
+  .top5-sign { font-size: 13px; font-weight: 700; width: 48px; color: var(--text); }
+  .top5-sign.winner-sign { color: var(--green); }
+  .top5-bar-wrap { flex: 1; background: var(--border); border-radius: 3px; height: 5px; overflow: hidden; }
+  .top5-bar-fill { height: 100%; background: var(--muted); border-radius: 3px; transition: width .15s; }
+  .top5-bar-fill.top { background: var(--green); }
+  .top5-pct { font-family: var(--font-mono); font-size: 11px; color: var(--muted); width: 40px; text-align: right; }
 
-.btn-capture{padding:7px 16px;font-family:inherit;font-size:12px;border-radius:5px;
-  border:1px solid var(--green);background:#00e5a018;color:var(--green);cursor:pointer;
-  font-weight:700;transition:all .15s;width:100%}
-.btn-capture:hover{background:#00e5a033}
-.btn-clear{border-color:var(--red);background:#ff5f6d10;color:var(--red)}
-.btn-clear:hover{background:#ff5f6d22}
+  /* ── MODE SELECTOR ──────────────────────────────────────── */
+  .mode-selector {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mode-selector label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 2px;
+    display: block;
+  }
+  .mode-btns { display: flex; gap: 6px; }
+  .mode-btn {
+    flex: 1;
+    padding: 7px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: color .2s, border-color .2s, background .2s;
+    text-align: center;
+  }
+  .mode-btn.active {
+    background: rgba(0,229,160,.1);
+    border-color: rgba(0,229,160,.4);
+    color: var(--green);
+  }
 
-.status{font-size:11px;color:var(--muted);text-align:center;padding:4px}
-.status.ok{color:var(--green)}
-.status.err{color:var(--red)}
+  /* ── SIGN SELECTOR (static) ─────────────────────────────── */
+  .sign-selector {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sign-selector label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .sign-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 4px;
+  }
+  .sign-chip {
+    padding: 5px 4px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .sign-chip:hover { color: var(--text); border-color: var(--text-dim); }
+  .sign-chip.active {
+    background: rgba(0,229,160,.12);
+    border-color: rgba(0,229,160,.5);
+    color: var(--green);
+  }
+  .sign-chip.--any {
+    grid-column: 1 / -1;
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
 
-.instr{font-size:11px;color:var(--muted);line-height:1.6;
-  background:var(--surface2);border:1px solid var(--border);
-  border-radius:6px;padding:10px}
-.instr b{color:var(--amber)}
+  /* ── QUIZ PANEL ─────────────────────────────────────────── */
+  .quiz-target-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+  }
+  .quiz-prompt-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .quiz-prompt-sign {
+    font-size: 72px;
+    font-weight: 800;
+    color: var(--text);
+    line-height: 1;
+    transition: color .3s;
+  }
+  .quiz-prompt-sign.correct { color: var(--green); }
+  .quiz-prompt-sign.wrong   { color: var(--red);   }
 
-.setting-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
-.setting-row input[type=range]{flex:1;accent-color:var(--green)}
-.setting-val{color:var(--amber);font-weight:700;min-width:40px}
+  .quiz-controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .quiz-btn {
+    flex: 1;
+    padding: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: all .2s;
+  }
+  .quiz-btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .quiz-btn.primary {
+    background: rgba(0,229,160,.12);
+    border-color: rgba(0,229,160,.4);
+    color: var(--green);
+  }
+  .quiz-btn.primary:hover { background: rgba(0,229,160,.2); }
 
-/* ── TAB 3 & 4: CAPTURE PANELS ── */
-.sign-progress-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
-  gap:6px;
-}
-.sp-cell{
-  background:var(--surface2);border:1px solid var(--border);border-radius:6px;
-  padding:6px 4px;text-align:center;cursor:pointer;transition:all .15s;position:relative;
-}
-.sp-cell:hover{border-color:var(--green)}
-.sp-cell.active-sign{border-color:var(--green);background:#00e5a018}
-.sp-cell.done{border-color:#00e5a055}
-.sp-cell .sp-letter{font-size:15px;font-weight:900;color:var(--text);line-height:1}
-.sp-cell .sp-count{font-size:9px;color:var(--muted);margin-top:3px}
-.sp-cell .sp-bar{height:3px;border-radius:99px;background:var(--border);margin-top:4px;overflow:hidden}
-.sp-cell .sp-fill{height:100%;border-radius:99px;background:var(--green);transition:width .2s}
-.sp-cell.done .sp-letter{color:var(--green)}
-.sp-cell.done .sp-count{color:var(--green)}
+  /* ── ACCURACY AUDIT ─────────────────────────────────────── */
+  .audit-grid {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .audit-hd {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 1fr 80px;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,.3);
+  }
+  .audit-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 1fr 80px;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    transition: background .15s;
+  }
+  .audit-row:last-child { border-bottom: none; }
+  .audit-row:hover { background: rgba(255,255,255,.02); }
+  .audit-sign { font-weight: 700; font-family: var(--font-mono); color: var(--text); }
+  .audit-tries { font-family: var(--font-mono); color: var(--muted); font-size: 11px; }
+  .audit-correct { font-family: var(--font-mono); font-size: 11px; }
+  .audit-rate {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .rate-high  { color: var(--green); }
+  .rate-mid   { color: var(--amber); }
+  .rate-low   { color: var(--red); }
+  .rate-none  { color: var(--muted); }
+  .audit-bar-wrap { background: var(--border); border-radius: 3px; height: 5px; overflow: hidden; }
+  .audit-bar-fill { height: 100%; border-radius: 3px; }
 
-/* Delete button on each sign cell */
-.sp-del{
-  position:absolute;top:2px;right:3px;
-  font-size:8px;line-height:1;
-  background:none;border:none;color:var(--muted);cursor:pointer;
-  padding:1px 2px;border-radius:2px;
-  transition:color .1s;
-  display:none;
-}
-.sp-cell:hover .sp-del{display:block}
-.sp-del:hover{color:var(--red)!important}
+  .audit-summary {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .audit-stat {
+    flex: 1;
+    min-width: 100px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .audit-stat-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .audit-stat-val {
+    font-size: 24px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text);
+  }
 
-@keyframes flashCapture{0%{background:#00e5a033}100%{background:#00e5a018}}
-.sp-cell.flash{animation:flashCapture .25s ease-out}
+  /* ── LIVE LOG ───────────────────────────────────────────── */
+  .live-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .live-log-hd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .live-dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); }
 
-.big-capture-btn{
-  width:100%;padding:18px;font-family:inherit;font-size:16px;font-weight:900;
-  letter-spacing:.05em;border-radius:8px;border:2px solid var(--green);
-  background:#00e5a018;color:var(--green);cursor:pointer;transition:all .15s;
-  text-transform:uppercase;
-}
-.big-capture-btn:hover{background:#00e5a033}
-.big-capture-btn:active{background:#00e5a055;transform:scale(.98)}
-.big-capture-btn:disabled{opacity:.4;cursor:not-allowed}
+  #live-log-body {
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .log-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(255,255,255,.03);
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-ts    { color: var(--muted); min-width: 56px; }
+  .log-sign  { font-weight: 700; min-width: 60px; }
+  .log-conf  { color: var(--text-dim); min-width: 42px; }
+  .log-check { margin-left: auto; font-size: 13px; }
 
-/* Motion record button states */
-.big-capture-btn.recording{
-  border-color:var(--red);background:#ff5f6d18;color:var(--red);
-  animation:recordPulse .6s infinite alternate;
-}
-@keyframes recordPulse{from{background:#ff5f6d18}to{background:#ff5f6d33}}
+  /* ── UTILITY ────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .btn.primary {
+    background: rgba(0,229,160,.12);
+    border-color: rgba(0,229,160,.4);
+    color: var(--green);
+  }
+  .btn.primary:hover { background: rgba(0,229,160,.2); }
+  .btn.danger {
+    background: rgba(255,74,110,.08);
+    border-color: rgba(255,74,110,.3);
+    color: var(--red);
+  }
+  .btn.danger:hover { background: rgba(255,74,110,.15); }
 
-.kbd{display:inline-block;padding:2px 6px;background:var(--surface2);border:1px solid var(--border);
-  border-radius:4px;font-size:10px;color:var(--muted)}
+  .kbd {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    background: rgba(255,255,255,.08);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--muted);
+  }
 
-.capture-flash{
-  position:fixed;inset:0;pointer-events:none;
-  background:#00e5a0;opacity:0;z-index:9999;
-  transition:opacity .05s;
-}
-.capture-flash.flash{opacity:.08}
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row-space { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 
-/* Motion recording flash (red) */
-.capture-flash.rec-flash{background:#ff5f6d;opacity:.12}
+  .model-load-block {
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .model-status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+  .model-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .model-dot.ok     { background: var(--green); }
+  .model-dot.err    { background: var(--red); }
+  .model-dot.loading { background: var(--amber); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-.total-strip{
-  display:flex;align-items:center;justify-content:space-between;
-  background:var(--surface2);border:1px solid var(--border);
-  border-radius:6px;padding:8px 12px;font-size:12px;
-}
-.total-big{font-size:28px;font-weight:900;color:var(--green)}
-.total-goal{font-size:11px;color:var(--muted);margin-top:2px}
+  .empty-state {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
 
-.mini-log{height:140px;overflow-y:auto;font-size:10px;line-height:1.9;
-  background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
-.mini-log::-webkit-scrollbar{width:3px}
-.mini-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
-.ml-entry{color:var(--muted);display:flex;gap:8px}
-.ml-sign-badge{color:var(--green);font-weight:900;min-width:28px}
-.ml-ts{color:#2a3544;font-size:9px}
-
-/* Motion progress bar */
-.seq-bar-wrap{width:100%;height:10px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:8px}
-.seq-bar{height:100%;border-radius:99px;background:var(--red);transition:width .05s}
-
-/* Count table two-column layout */
-.count-table-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
+  /* ── SCROLLBAR ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 </style>
 </head>
 <body>
 
-<!-- Screen flash on capture -->
-<div class="capture-flash" id="capture-flash"></div>
-
-<div style="text-align:center">
-  <h1>🔬 M2 Debugger v13 — Static + Motion Capture (Path 3)</h1>
-  <p class="sub">Tab 1: live classifier · Tab 2: raw landmark inspector · Tab 3: static capture (A–Z + ILY) · Tab 4: motion capture (words/phrases)</p>
-  <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
+<!-- TOP BAR -->
+<div class="topbar">
+  <div>
+    <div class="topbar-title">M2 — Model Accuracy Tester</div>
+    <div class="topbar-sub">Member 2 [Manlangit] · [Manlangit]cameratracking-engine</div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <span class="topbar-badge" id="hand-status-pill">No hand</span>
+  <span class="topbar-badge" id="fps-pill">– fps</span>
 </div>
 
-<p class="status" id="status" style="width:100%;max-width:1100px">Loading MediaPipe model…</p>
+<!-- STATUS BAR -->
+<div id="status-bar" class="loading">Initializing…</div>
 
-<!-- ══ TABS ══ -->
-<div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('classifier')">🤖 Tab 1 — Live Classifier</button>
-  <button class="tab-btn"        onclick="switchTab('rawdebug')">🔩 Tab 2 — Raw Debug</button>
-  <button class="tab-btn"        onclick="switchTab('capture')">📸 Tab 3 — Static Capture</button>
-  <button class="tab-btn"        onclick="switchTab('motion')">🎬 Tab 4 — Motion Capture</button>
+<!-- TABS -->
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="static"   onclick="switchTab('static')">Static Model (A–Z)</button>
+  <button class="tab-btn"        data-tab="audit"    onclick="switchTab('audit')">Accuracy Audit</button>
+  <button class="tab-btn"        data-tab="quiz"     onclick="switchTab('quiz')">Quiz Mode</button>
+  <button class="tab-btn"        data-tab="rawdata"  onclick="switchTab('rawdata')">Raw Data</button>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 1 — LIVE CLASSIFIER                                   -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<div class="tab-panel active" id="panel-classifier">
+<!-- ═══════════════════════════════════════════════════════
+     TAB 1 — STATIC MODEL LIVE TEST
+═══════════════════════════════════════════════════════════ -->
+<div id="panel-static" class="tab-panel active">
 
-  <div class="col" style="flex:2;min-width:340px">
-    <div class="webcam-wrap">
-      <video id="webcam" autoplay playsinline muted></video>
-      <canvas id="overlay"></canvas>
+  <!-- LEFT PANE -->
+  <div class="pane-left">
+
+    <!-- Camera -->
+    <div class="cam-block">
+      <video id="webcam-static" playsinline muted autoplay></video>
+      <canvas id="canvas-static"></canvas>
+      <div class="hand-status-pill" id="hand-status">Waiting for hand…</div>
     </div>
 
-    <div class="result-box">
-      <div class="result-label" id="res-label">—</div>
-      <div class="result-conf"  id="res-conf">Confidence: —</div>
-      <div class="conf-bar-wrap"><div class="conf-bar" id="conf-bar"></div></div>
-      <div style="margin-top:6px;font-size:10px;color:var(--muted)">Debounce hold progress</div>
-      <div class="debounce-wrap"><div class="debounce-bar" id="debounce-bar"></div></div>
-      <div class="result-status" id="res-status">Waiting for hand…</div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Output text (auto-appends on hold)</div>
-      <textarea class="output-area" id="output-text" readonly placeholder="Hold a sign for 1.5s to register…"></textarea>
-      <div class="ctrl-row" style="margin-top:6px">
-        <button class="btn" onclick="document.getElementById('output-text').value=''">Clear output</button>
-        <button class="btn amber" onclick="toggleLock()" id="lock-btn">⏸ Pause detection</button>
+    <!-- Model load status -->
+    <div class="model-load-block">
+      <div class="sec-hd" style="padding:0 0 6px; border:none">Model Status</div>
+      <div class="model-status-row">
+        <div class="model-dot" id="mp-dot"></div>
+        <span id="mp-status-text" style="color:var(--muted)">MediaPipe — loading…</span>
       </div>
-    </div>
-  </div>
-
-  <div class="col" style="flex:1;min-width:260px">
-    <div class="card">
-      <div class="ctitle">Detection settings</div>
-      <div class="setting-row">
-        <span>Hold time</span>
-        <input type="range" id="hold-slider" min="10" max="60" value="24" oninput="updateHoldTime(this.value)">
-        <span class="setting-val" id="hold-val">24 frames</span>
+      <div class="model-status-row">
+        <div class="model-dot" id="model-dot"></div>
+        <span id="model-status-text" style="color:var(--muted)">TF.js model — waiting…</span>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">24 frames ≈ 0.8s · 45 = 1.5s · 60 = 2s</div>
-      <div style="margin-top:8px" class="setting-row">
-        <span>Cooldown</span>
-        <input type="range" id="cool-slider" min="10" max="90" value="30" oninput="updateCooldown(this.value)">
-        <span class="setting-val" id="cool-val">30 frames</span>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">30 frames ≈ 1s cooldown after each registered sign</div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Sign test board — click a sign to test it</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
-        Make the sign → if classifier detects it → button turns green.<br>Red = wrong sign detected.
-      </div>
-      <div class="sign-grid" id="sign-grid"></div>
-      <div class="ctrl-row" style="margin-top:8px">
-        <button class="btn" onclick="resetSignBoard()">Reset board</button>
+      <div class="model-status-row">
+        <div class="model-dot" id="labels-dot"></div>
+        <span id="labels-status-text" style="color:var(--muted)">labels.json — waiting…</span>
       </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle">Top prediction (static model)</div>
-      <div class="fs-display" id="live-fs">—</div>
-      <div class="fs-label">Label (confidence%) · updates every frame</div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Detection log (last 8)</div>
-      <div id="det-log" style="font-size:10px;color:var(--muted);line-height:1.8"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 2 — RAW DEBUGGER                                      -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<div class="tab-panel" id="panel-rawdebug">
-
-  <div class="col" style="flex:2;min-width:340px">
-    <div class="webcam-wrap">
-      <video id="webcam2" autoplay playsinline muted></video>
-      <canvas id="overlay2"></canvas>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Which sign are you testing?</div>
-      <div class="sign-btns" id="sign-btns"></div>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Detected finger states (raw — 0/1/2)</div>
-      <div class="fs-display" id="fs-display2">—</div>
-      <div class="fs-label">[thumb, index, middle, ring, pinky] — 2=extended 1=bent 0=curled</div>
-    </div>
-  </div>
-
-  <div class="col" style="flex:1.5;min-width:280px">
-    <div class="card">
-      <div class="ctitle">Raw Y values — key landmarks</div>
-      <table class="raw-table">
-        <thead><tr><th>Landmark</th><th>Y (raw)</th><th>X (raw)</th></tr></thead>
-        <tbody id="lm-tbody"></tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Computed tiebreakers</div>
-      <div class="tb-grid" id="tb-grid"></div>
-    </div>
-  </div>
-
-  <div class="col" style="flex:1.2;min-width:260px">
-    <div class="instr">
-      <b>HOW TO USE:</b><br>
-      1. Select a sign button above.<br>
-      2. Hold that sign clearly in frame.<br>
-      3. Click <b>📸 Capture snapshot</b>.<br>
-      4. The log shows exact tiebreaker values for your real hand.
-    </div>
-
-    <button class="btn-capture" id="capture-btn">📸 Capture snapshot for [A]</button>
-    <button class="btn-capture btn-clear" id="clear-log-btn" style="margin-top:4px">🗑 Clear log</button>
-
-    <div class="card" style="flex:1">
-      <div class="ctitle">Capture log — copy and share</div>
-      <div class="capture-log" id="capture-log">Hold a sign and press capture…</div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 3 — STATIC CAPTURE (PATH 3)                          -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<div class="tab-panel" id="panel-capture">
-
-  <!-- Left: webcam + big capture button -->
-  <div class="col" style="flex:2;min-width:340px">
-    <div class="webcam-wrap">
-      <video id="webcam3" autoplay playsinline muted></video>
-      <canvas id="overlay3"></canvas>
-    </div>
-
-    <div style="text-align:center;padding:8px 0">
-      <div style="font-size:11px;color:var(--muted)">Currently capturing</div>
-      <div id="active-sign-display" style="font-size:56px;font-weight:900;color:var(--green);
-           line-height:1.1;letter-spacing:.05em">A</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">
-        Click a letter in the grid → then capture
+    <!-- Mode selector -->
+    <div class="mode-selector">
+      <label>Filter Mode</label>
+      <div class="mode-btns">
+        <button class="mode-btn active" id="mode-any"    onclick="setMode('any')">Free Run</button>
+        <button class="mode-btn"        id="mode-filter" onclick="setMode('filter')">Watch Sign</button>
       </div>
     </div>
 
-    <button class="big-capture-btn" id="btn-static-capture" onclick="captureStatic()">
-      📸 &nbsp;CAPTURE &nbsp;<span class="kbd">SPACE</span>
-    </button>
+    <!-- Sign selector -->
+    <div class="sign-selector" id="sign-selector-block">
+      <label>Watch Sign</label>
+      <div class="sign-grid" id="sign-selector-grid"></div>
+    </div>
 
-    <div class="total-strip">
-      <div>
-        <div class="total-big" id="total-count">0</div>
-        <div class="total-goal">total snapshots</div>
+    <!-- Debounce toggle -->
+    <div style="padding:10px 14px; border-bottom:1px solid var(--border);">
+      <div style="display:flex; align-items:center; gap:10px; justify-content:space-between">
+        <span style="font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)">Auto-log (≥75% hold 1s)</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="autolog-toggle" checked style="accent-color:var(--green)">
+          <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-dim)" id="autolog-label">ON</span>
+        </label>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:12px;color:var(--amber);font-weight:700" id="active-sign-count-strip">
-          A: 0 / 150
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">
-          Goal: 150 per sign × 26 signs = 3,900
+    </div>
+
+  </div><!-- /pane-left -->
+
+  <!-- RIGHT PANE -->
+  <div class="pane-right">
+
+    <!-- BIG RESULT -->
+    <div class="result-card no-hand" id="result-card">
+      <div class="result-label no-match" id="result-label">–</div>
+      <div class="result-meta">
+        <div class="result-conf low" id="result-conf">0%</div>
+        <div class="result-status" id="result-status">No hand detected</div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar-fill" id="conf-bar" style="width:0%"></div>
         </div>
       </div>
     </div>
 
-    <!-- Export / clear -->
-    <div style="display:flex;gap:8px">
-      <button class="btn-capture" style="flex:2" onclick="exportStaticJSON()">
-        ⬇ Export data/static_data.json
-      </button>
-      <button class="btn-capture btn-clear" style="flex:1" onclick="clearStaticData()">
-        🗑 Clear all
-      </button>
+    <!-- TOP-5 PREDICTIONS -->
+    <div class="top5-card">
+      <div class="top5-hd">Top 5 Predictions</div>
+      <div id="top5-body">
+        <div class="empty-state">Show your hand to see predictions</div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle">Recent captures</div>
-      <div class="mini-log" id="mini-log">No captures yet — show your hand and press Space…</div>
+    <!-- LIVE LOG -->
+    <div class="live-log">
+      <div class="live-log-hd">
+        <div class="live-dot" id="live-dot"></div>
+        Live Log
+        <div style="flex:1"></div>
+        <button class="btn" style="padding:4px 10px; font-size:10px" onclick="clearLog()">Clear</button>
+      </div>
+      <div id="live-log-body">
+        <div class="empty-state">Auto-logged detections appear here</div>
+      </div>
+    </div>
+
+  </div><!-- /pane-right -->
+</div><!-- /panel-static -->
+
+
+<!-- ═══════════════════════════════════════════════════════
+     TAB 2 — ACCURACY AUDIT
+═══════════════════════════════════════════════════════════ -->
+<div id="panel-audit" class="tab-panel">
+  <div class="pane-left">
+    <div class="cam-block">
+      <video id="webcam-audit" playsinline muted autoplay></video>
+      <canvas id="canvas-audit"></canvas>
+      <div class="hand-status-pill" id="hand-status-audit">Waiting for hand…</div>
+    </div>
+
+    <!-- Audit controls -->
+    <div style="padding:12px 14px; border-bottom:1px solid var(--border)">
+      <div class="sec-hd" style="padding:0 0 8px;border:none">Audit Controls</div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:5px">
+          Testing Sign
+        </label>
+        <div class="sign-grid" id="audit-sign-grid"></div>
+      </div>
+
+      <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center; justify-content:space-between">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Trials per sign</span>
+        <span style="font-family:var(--font-mono);font-size:13px;color:var(--text)" id="trials-count-label">10</span>
+      </div>
+      <input type="range" id="trials-slider" min="5" max="30" step="5" value="10"
+        oninput="document.getElementById('trials-count-label').textContent=this.value"
+        style="width:100%;accent-color:var(--green);margin-bottom:10px">
+
+      <div style="display:flex;gap:6px">
+        <button class="btn primary" style="flex:1" onclick="startAuditSign()">▶ Start Test</button>
+        <button class="btn danger"  style="flex:1" onclick="resetAudit()">↺ Reset All</button>
+      </div>
+    </div>
+
+    <!-- Current audit progress -->
+    <div style="padding:12px 14px">
+      <div class="sec-hd" style="padding:0 0 6px;border:none">Current Test</div>
+      <div id="audit-current-sign" style="font-size:36px;font-weight:800;color:var(--text);margin-bottom:4px">–</div>
+      <div id="audit-progress-text" style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">Idle</div>
+      <div class="conf-bar-wrap" style="margin-top:8px">
+        <div class="conf-bar-fill" id="audit-progress-bar" style="width:0%"></div>
+      </div>
     </div>
   </div>
 
-  <!-- Right: sign progress grid + instructions -->
-  <div class="col" style="flex:1.4;min-width:280px">
-
-    <div class="instr">
-      <b>HOW TO CAPTURE (Path 3 — Static Model Training):</b><br><br>
-      1. Click a letter in the grid below to select it.<br>
-      2. Hold that ASL handshape in front of the camera.<br>
-      3. Press <b>Space</b> (or the Capture button) once per snapshot.<br>
-      4. Aim for <b>150 captures per sign</b> with variation:<br>
-         &nbsp;• Move hand left / right / closer / farther<br>
-         &nbsp;• Tilt wrist slightly each shot<br>
-         &nbsp;• Don't always hold the same position<br><br>
-      <b>J and Z are motion signs</b> — skip them here.<br>
-      <b>ILY</b> = I Love You (thumb + index + pinky).<br><br>
-      After capturing: click <b>Export</b>. Save the file into the<br>
-      <b>data/</b> folder of your repo before committing.<br><br>
-      <b>🗑 Delete last N</b> button appears on each sign cell when<br>
-      you hover it — use it to remove accidental over-captures.
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Sign progress — click to select &nbsp;|&nbsp; hover → delete button</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
-        Green border = selected &nbsp;|&nbsp; Bar fills toward 150 target
+  <div class="pane-right">
+    <!-- Summary stats -->
+    <div class="audit-summary" id="audit-summary">
+      <div class="audit-stat">
+        <div class="audit-stat-label">Overall Accuracy</div>
+        <div class="audit-stat-val" id="stat-overall">–</div>
       </div>
-      <div class="sign-progress-grid" id="sign-progress-grid"></div>
+      <div class="audit-stat">
+        <div class="audit-stat-label">Signs Tested</div>
+        <div class="audit-stat-val" id="stat-tested">0</div>
+      </div>
+      <div class="audit-stat">
+        <div class="audit-stat-label">Signs ≥80%</div>
+        <div class="audit-stat-val" id="stat-passing">0</div>
+      </div>
+      <div class="audit-stat">
+        <div class="audit-stat-label">Total Trials</div>
+        <div class="audit-stat-val" id="stat-trials">0</div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle">Count per sign</div>
-      <div id="count-table" class="count-table-grid"></div>
+    <!-- Per-sign table -->
+    <div class="audit-grid">
+      <div class="audit-hd">
+        <span>Sign</span>
+        <span>Trials</span>
+        <span>Correct</span>
+        <span>Accuracy</span>
+        <span>Bar</span>
+      </div>
+      <div id="audit-table-body">
+        <div class="empty-state">Select a sign and press Start Test</div>
+      </div>
     </div>
 
+    <div class="row">
+      <button class="btn" onclick="exportAuditCSV()">⬇ Export Audit CSV</button>
+      <button class="btn danger" onclick="resetAudit()">↺ Reset All Data</button>
+    </div>
   </div>
-</div>
+</div><!-- /panel-audit -->
 
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 4 — MOTION / SEQUENCE CAPTURE (PATH 3)               -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<div class="tab-panel" id="panel-motion">
 
-  <div class="col" style="flex:2;min-width:340px">
-    <div class="webcam-wrap">
-      <video id="webcam4" autoplay playsinline muted></video>
-      <canvas id="overlay4"></canvas>
+<!-- ═══════════════════════════════════════════════════════
+     TAB 3 — QUIZ MODE
+═══════════════════════════════════════════════════════════ -->
+<div id="panel-quiz" class="tab-panel">
+  <div class="pane-left">
+    <div class="cam-block">
+      <video id="webcam-quiz" playsinline muted autoplay></video>
+      <canvas id="canvas-quiz"></canvas>
+      <div class="hand-status-pill" id="hand-status-quiz">Waiting for hand…</div>
     </div>
 
-    <div style="text-align:center;padding:8px 0">
-      <div style="font-size:11px;color:var(--muted)">Currently capturing motion for</div>
-      <div id="active-motion-sign-display" style="font-size:32px;font-weight:900;color:var(--purple);
-           line-height:1.2;letter-spacing:.03em">HELLO</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">
-        Click a word in the grid → then record
-      </div>
-    </div>
-
-    <!-- Recording progress bar -->
-    <div id="seq-progress-wrap" style="display:none">
-      <div style="font-size:11px;color:var(--red);text-align:center;margin-bottom:4px">
-        🔴 Recording… <span id="seq-frame-count">0</span> / <span id="seq-target-frames">30</span> frames
-      </div>
-      <div class="seq-bar-wrap"><div class="seq-bar" id="seq-bar" style="width:0%"></div></div>
-    </div>
-
-    <!-- BIG RECORD BUTTON -->
-    <button class="big-capture-btn" id="btn-motion-record" onclick="recordMotion()">
-      🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>
-    </button>
-
-    <!-- Totals strip -->
-    <div class="total-strip">
-      <div>
-        <div class="total-big" id="motion-total-count">0</div>
-        <div class="total-goal">total sequences</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:12px;color:var(--amber);font-weight:700" id="active-motion-count-strip">
-          HELLO: 0 / 150
+    <div style="padding:12px 14px; border-bottom:1px solid var(--border)">
+      <div class="sec-hd" style="padding:0 0 8px;border:none">Quiz Settings</div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:5px">
+          Sign Set
+        </label>
+        <div class="mode-btns">
+          <button class="mode-btn active" id="quiz-set-all"   onclick="setQuizSet('all')">All Signs</button>
+          <button class="mode-btn"        id="quiz-set-hard"  onclick="setQuizSet('hard')">Hard Only</button>
+          <button class="mode-btn"        id="quiz-set-alpha" onclick="setQuizSet('alpha')">A–Z Only</button>
         </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">
-          Goal: 150 sequences × words = training data
+      </div>
+      <div style="margin-bottom:10px; display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Rounds</span>
+        <span style="font-family:var(--font-mono);font-size:13px;color:var(--text)" id="quiz-rounds-label">10</span>
+      </div>
+      <input type="range" id="quiz-rounds-slider" min="5" max="30" step="5" value="10"
+        oninput="document.getElementById('quiz-rounds-label').textContent=this.value"
+        style="width:100%;accent-color:var(--green);margin-bottom:10px">
+      <button class="btn primary" style="width:100%" onclick="startQuiz()">▶ Start Quiz</button>
+    </div>
+
+    <div style="padding:12px 14px">
+      <div class="sec-hd" style="padding:0 0 8px;border:none">Session Score</div>
+      <div style="font-size:36px;font-weight:800;font-family:var(--font-mono);color:var(--text)" id="quiz-score">0 / 0</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px;font-family:var(--font-mono)" id="quiz-score-pct">–</div>
+    </div>
+  </div>
+
+  <div class="pane-right">
+    <!-- Target sign -->
+    <div class="quiz-target-card">
+      <div class="quiz-prompt-label">Sign This:</div>
+      <div class="quiz-prompt-sign" id="quiz-prompt">–</div>
+      <div style="font-size:11px;font-family:var(--font-mono);color:var(--muted);margin-top:8px" id="quiz-hint"></div>
+      <div class="quiz-controls">
+        <button class="btn" onclick="skipQuizSign()">Skip →</button>
+        <button class="btn primary" id="quiz-next-btn" onclick="nextQuizSign()" style="display:none">Next → <span class="kbd">Space</span></button>
+      </div>
+    </div>
+
+    <!-- Detected result during quiz -->
+    <div class="result-card no-hand" id="quiz-result-card">
+      <div class="result-label no-match" id="quiz-result-label">–</div>
+      <div class="result-meta">
+        <div class="result-conf low" id="quiz-result-conf">0%</div>
+        <div class="result-status" id="quiz-result-status">No hand detected</div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar-fill" id="quiz-conf-bar" style="width:0%"></div>
         </div>
       </div>
     </div>
 
-    <!-- Export / clear -->
-    <div style="display:flex;gap:8px">
-      <button class="btn-capture" style="flex:2" onclick="exportMotionJSON()">
-        ⬇ Export data/sequence_data.json
-      </button>
-      <button class="btn-capture btn-clear" style="flex:1" onclick="clearMotionData()">
-        🗑 Clear all
-      </button>
-    </div>
-
-    <!-- Frame length setting -->
-    <div class="card">
-      <div class="ctitle">Sequence settings</div>
-      <div class="setting-row">
-        <span>Frames per sequence</span>
-        <input type="range" id="frames-slider" min="15" max="60" value="30"
-               oninput="updateFrameTarget(this.value)">
-        <span class="setting-val" id="frames-val">30</span>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">
-        30 frames ≈ 1s of motion at 30fps. Use 30 unless signs are very long.
+    <!-- Quiz history -->
+    <div class="live-log">
+      <div class="live-log-hd">Quiz History</div>
+      <div id="quiz-history-body">
+        <div class="empty-state">Quiz results appear here</div>
       </div>
     </div>
+  </div>
+</div><!-- /panel-quiz -->
 
-    <div class="card">
-      <div class="ctitle">Recent sequences</div>
-      <div class="mini-log" id="motion-mini-log">No sequences yet — press R to record…</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     TAB 4 — RAW DATA
+═══════════════════════════════════════════════════════════ -->
+<div id="panel-rawdata" class="tab-panel">
+  <div class="pane-left">
+    <div class="cam-block">
+      <video id="webcam-raw" playsinline muted autoplay></video>
+      <canvas id="canvas-raw"></canvas>
+      <div class="hand-status-pill" id="hand-status-raw">Waiting for hand…</div>
+    </div>
+    <div style="padding:12px 14px">
+      <div class="sec-hd" style="padding:0 0 8px;border:none">Landmark Freeze</div>
+      <button class="btn primary" style="width:100%;margin-bottom:8px" onclick="freezeLandmarks()">
+        ⬡ Freeze Frame <span class="kbd">F</span>
+      </button>
+      <button class="btn" style="width:100%" onclick="clearFreeze()">Clear</button>
+      <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono);margin-top:8px;line-height:1.6" id="freeze-info">
+        Freeze captures the current 63-value landmark array for inspection.
+      </div>
     </div>
   </div>
 
-  <!-- Right: word grid + instructions -->
-  <div class="col" style="flex:1.4;min-width:280px">
-
-    <div class="instr">
-      <b>HOW TO RECORD A MOTION SEQUENCE:</b><br><br>
-      1. Click a word in the grid to select it.<br>
-      2. Rest your hand <b>below frame</b> or still.<br>
-      3. Press <b>R</b> (or the Record button).<br>
-      4. Immediately perform the sign naturally.<br>
-      5. Hold still at the end — recording stops automatically.<br><br>
-      One press = one sequence = 30 consecutive frames.<br>
-      Aim for <b>150 sequences per word</b>.<br>
-      Each recording takes ~1–3 seconds.<br><br>
-      <b>Variation tips:</b><br>
-         &nbsp;• Vary speed (slow, normal, fast)<br>
-         &nbsp;• Vary hand position (left/right/closer/far)<br>
-         &nbsp;• Don't start from the same position every time<br><br>
-      Export saves to <b>data/sequence_data.json</b> — put that<br>
-      file in your repo's <code>data/</code> folder.<br><br>
-      <b>🗑 Delete button</b> on each word cell (hover to see it)<br>
-      removes the last N sequences for that word only.
-    </div>
-
-    <div class="card">
-      <div class="ctitle">Word progress — click to select &nbsp;|&nbsp; hover → delete</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
-        Purple border = selected &nbsp;|&nbsp; Bar fills toward 150 target
+  <div class="pane-right">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border)">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">Live Landmark Values</span>
+        <div style="flex:1"></div>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)" id="raw-frame-count">frame –</span>
       </div>
-      <div class="sign-progress-grid" id="motion-progress-grid"></div>
+      <div id="raw-landmark-table" style="font-family:var(--font-mono);font-size:11px;max-height:400px;overflow-y:auto;padding:10px 14px">
+        <div class="empty-state">Show your hand to see raw landmark data</div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle">Count per word</div>
-      <div id="motion-count-table" class="count-table-grid"></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">
+        All Class Probabilities
+      </div>
+      <div id="raw-probs-body" style="font-family:var(--font-mono);font-size:11px;max-height:300px;overflow-y:auto">
+        <div class="empty-state">Show your hand</div>
+      </div>
     </div>
   </div>
-</div>
+</div><!-- /panel-rawdata -->
 
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- SCRIPT                                                     -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<script type="module">
-import { HandLandmarker, FilesetResolver }
-  from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
-import { classifyGesture, loadModels, isClassifierReady, landmarkDistance }
-  from './js/engine/classifier.js';
-import { SIGN_DICTIONARY, getSignsByCategory, getActiveSigns }
-  from './js/engine/dictionary.js';
-
-// ── Constants ──
-const WRIST=0,THUMB_CMC=1,THUMB_MCP=2,THUMB_IP=3,THUMB_TIP=4,
-      INDEX_MCP=5,INDEX_PIP=6,INDEX_DIP=7,INDEX_TIP=8,
-      MIDDLE_MCP=9,MIDDLE_PIP=10,MIDDLE_TIP=12,
-      RING_MCP=13,RING_PIP=14,RING_TIP=16,
-      PINKY_MCP=17,PINKY_PIP=18,PINKY_TIP=20;
-
-const LM_NAMES={[WRIST]:'WRIST',[THUMB_CMC]:'THUMB_CMC',[THUMB_MCP]:'THUMB_MCP',
-  [THUMB_IP]:'THUMB_IP',[THUMB_TIP]:'THUMB_TIP',
-  [INDEX_MCP]:'INDEX_MCP',[INDEX_PIP]:'INDEX_PIP',[INDEX_TIP]:'INDEX_TIP',
-  [MIDDLE_MCP]:'MID_MCP',[MIDDLE_PIP]:'MID_PIP',[MIDDLE_TIP]:'MID_TIP'};
-const KEY_LM=[WRIST,THUMB_CMC,THUMB_MCP,THUMB_IP,THUMB_TIP,
-              INDEX_MCP,INDEX_PIP,INDEX_TIP,MIDDLE_MCP,MIDDLE_PIP,MIDDLE_TIP];
-
-const SIGNS=['A','E','M','N','S','T','C','O','B','D','F','G','H','I','K','L','P','Q','R','U','V','W','X','Y'];
-
-// ── STATIC CAPTURE SIGNS (Path 3) — J and Z omitted (motion signs) ──
-const STATIC_SIGNS = [
-  'A','B','C','D','E','F','G','H','I','K',
-  'L','M','N','O','P','Q','R','S','T','U',
-  'V','W','X','Y','ILY'
-];
-const STATIC_TARGET = 150;
-
-// ── MOTION CAPTURE SIGNS — words/phrases with distinct motion paths ──
-const MOTION_SIGNS = [
-  'J','Z',
-  'HELLO','THANK YOU','PLEASE','SORRY','YES','NO',
-  'HELP','WATER','FOOD','MORE','STOP',
-  'GOOD','BAD','MY NAME IS','HOW ARE YOU'
-];
-const MOTION_TARGET = 150;
-let SEQ_FRAMES = 30; // how many frames per sequence (adjustable)
-
-// ── State ──
-let handLandmarker=null, lastVideoTime=-1, lastLM=null;
-let paused=false;
-let holdFrames=24, cooldownFrames=30;
-let holdCount=0, coolCount=0, lastRaw=null;
-let outputLocked=false;
-let selectedSign='A';
-let testingSign=null;
-let detLog=[];
-
-// ── Static capture state ──
-let activeStaticSign = 'A';
-let staticCaptures   = [];   // Array of { label, landmarks:[63 numbers] }
-let recentLog        = [];
-
-// ── Motion capture state ──
-let activeMotionSign  = 'HELLO';
-let motionCaptures    = [];  // Array of { label, sequence:[ [63 numbers], ... ] }
-let motionRecentLog   = [];
-let isRecording       = false;
-let recordBuffer      = [];  // frames being collected right now
-
-// ── Tab switching ──
-window.switchTab=function(name){
-  const tabs=['classifier','rawdebug','capture','motion'];
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>{
-    b.classList.toggle('active', tabs[i]===name);
-  });
-  document.querySelectorAll('.tab-panel').forEach(p=>{
-    p.classList.toggle('active',p.id==='panel-'+name);
-  });
-};
-
-// ── Init ──
-async function init(){
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia(
-      {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});
-
-    const v1=document.getElementById('webcam');
-    const v2=document.getElementById('webcam2');
-    const v3=document.getElementById('webcam3');
-    const v4=document.getElementById('webcam4');
-    [v1,v2,v3,v4].forEach(v=>{ v.srcObject=stream; });
-
-    await new Promise(r=>{v1.onloadedmetadata=()=>v1.play().then(r);});
-    [v2,v3,v4].forEach(v=>v.play());
-
-    const c1=document.getElementById('overlay');
-    const c2=document.getElementById('overlay2');
-    const c3=document.getElementById('overlay3');
-    const c4=document.getElementById('overlay4');
-    [c1,c2,c3,c4].forEach(c=>{c.width=v1.videoWidth;c.height=v1.videoHeight;});
-
-    setStatus('Loading HandLandmarker model…','');
-    const vis=await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
-    handLandmarker=await HandLandmarker.createFromOptions(vis,{
-      baseOptions:{
-        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-        delegate:'GPU'},
-      runningMode:'VIDEO',numHands:2,
-      minHandDetectionConfidence:0.7,
-      minHandPresenceConfidence:0.7,
-      minTrackingConfidence:0.6,
-    });
-    setStatus('Loading classifier model…','');
-    await loadModels();
-    setStatus('✅ Ready — show your hand','ok');
-    buildSignGrid();
-    buildSignButtons();
-    buildSignProgressGrid();
-    buildMotionProgressGrid();
-    requestAnimationFrame(loop);
-  }catch(e){
-    setStatus('❌ '+e.message,'err');
-  }
-}
-
-function setStatus(msg,cls){
-  const el=document.getElementById('status');
-  el.textContent=msg;el.className='status'+(cls?' '+cls:'');
-}
-
-function pickDominantHand(landmarks, handedness){
-  if(!landmarks||landmarks.length===0) return null;
-  if(landmarks.length===1) return landmarks[0];
-  for(let i=0;i<(handedness||[]).length;i++){
-    const cat=(handedness[i]?.[0]?.categoryName)||(handedness[i]?.categoryName)||'';
-    if(cat==='Left') return landmarks[i];
-  }
-  return landmarks[0];
-}
-
-// ── Main loop ──
-function loop(){
-  if(!handLandmarker){requestAnimationFrame(loop);return;}
-  const v1=document.getElementById('webcam');
-  if(v1.currentTime!==lastVideoTime){
-    lastVideoTime=v1.currentTime;
-    const r=handLandmarker.detectForVideo(v1,performance.now());
-
-    if(r.landmarks&&r.landmarks.length>0){
-      const c1=document.getElementById('overlay');
-      const c2=document.getElementById('overlay2');
-      const c3=document.getElementById('overlay3');
-      const c4=document.getElementById('overlay4');
-      [c1,c2,c3,c4].forEach(c=>{
-        const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
-      });
-      r.landmarks.forEach(lm=>{
-        [c1,c2,c3,c4].forEach(c=>drawSkeletonOnCtx(c.getContext('2d'),lm,c.width,c.height));
-      });
-
-      lastLM = pickDominantHand(r.landmarks, r.handedness);
-      window._currentLandmarks = lastLM;
-
-      updateClassifierPanel(lastLM);
-      updateRawPanel(lastLM);
-
-      // Feed motion recording buffer
-      if(isRecording && lastLM){
-        const flat = lastLM.flatMap(p=>[p.x,p.y,p.z]);
-        recordBuffer.push(flat);
-        updateRecordingUI();
-        if(recordBuffer.length >= SEQ_FRAMES){
-          finishRecording();
-        }
-      }
-
-      const hc=document.getElementById('hand-count-display');
-      if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
-    } else {
-      lastLM=null;
-      window._currentLandmarks = null;
-      ['overlay','overlay2','overlay3','overlay4'].forEach(id=>
-        clearCanvas(document.getElementById(id)));
-      resetClassifierDisplay();
-      const hc=document.getElementById('hand-count-display');
-      if(hc) hc.textContent='No hands detected';
-    }
-  }
-  requestAnimationFrame(loop);
-}
-
-// ══════════════════════════════════════════════════════════
-// TAB 1 — CLASSIFIER PANEL
-// ══════════════════════════════════════════════════════════
-
-function updateClassifierPanel(lm){
-  if(paused)return;
-
-  if(!isClassifierReady()) return;
-  const result=classifyGesture(lm);
-  document.getElementById('live-fs').textContent=
-    result.label ? result.label+' ('+result.confidence+'%)' : '—';
-
-  document.getElementById('conf-bar').style.width=result.confidence+'%';
-  document.getElementById('conf-bar').style.background=
-    result.confidence>=84?'var(--green)':result.confidence>=60?'var(--amber)':'var(--red)';
-  document.getElementById('res-conf').textContent='Confidence: '+result.confidence+'%';
-
-  const label=result.label;
-  document.getElementById('res-label').textContent=label??'—';
-
-  if(testingSign){
-    const detected=label===testingSign&&result.matched;
-    const btn=document.getElementById('sgbtn-'+testingSign);
-    if(btn){
-      btn.className='sgbtn'+(detected?' ok':label&&label!==testingSign?' fail':' testing');
-    }
-  }
-
-  if(label&&label===lastRaw){
-    holdCount++;
-  } else {
-    holdCount=1;
-    lastRaw=label;
-  }
-
-  const holdPct=Math.min(100,Math.round((holdCount/holdFrames)*100));
-  document.getElementById('debounce-bar').style.width=holdPct+'%';
-
-  if(coolCount>0){
-    coolCount--;
-    document.getElementById('res-status').textContent=`⏳ Cooldown: ${coolCount} frames`;
-    return;
-  }
-
-  if(holdCount>=holdFrames&&result.matched&&!outputLocked){
-    const textarea=document.getElementById('output-text');
-    if(label==='SPACE'){
-      textarea.value+=' ';
-    } else if(label==='BACKSPACE'){
-      textarea.value=textarea.value.slice(0,-1);
-    } else {
-      textarea.value+=label;
-    }
-    coolCount=cooldownFrames;
-    holdCount=0;
-    addDetLog(label,result.confidence);
-    document.getElementById('res-status').textContent=`✅ Registered: ${label}`;
-  } else if(holdCount<holdFrames&&label){
-    document.getElementById('res-status').textContent=`Hold ${label}… (${holdCount}/${holdFrames} frames)`;
-  } else if(!label){
-    document.getElementById('res-status').textContent='No confident match';
-  }
-}
-
-function resetClassifierDisplay(){
-  holdCount=0;lastRaw=null;
-  document.getElementById('res-label').textContent='—';
-  document.getElementById('res-conf').textContent='Confidence: —';
-  document.getElementById('res-status').textContent='No hand detected';
-  document.getElementById('conf-bar').style.width='0%';
-  document.getElementById('debounce-bar').style.width='0%';
-  document.getElementById('live-fs').textContent='—';
-}
-
-function addDetLog(label,conf){
-  detLog.unshift(`[${new Date().toLocaleTimeString()}] ${label} (${conf}%)`);
-  if(detLog.length>8)detLog.pop();
-  document.getElementById('det-log').innerHTML=
-    detLog.map(l=>`<div style="color:var(--text)">${l}</div>`).join('');
-}
-
-function buildSignGrid(){
-  const grid=document.getElementById('sign-grid');
-  SIGNS.forEach(s=>{
-    const b=document.createElement('button');
-    b.className='sgbtn';
-    b.id='sgbtn-'+s;
-    b.textContent=s;
-    b.onclick=()=>{
-      testingSign=s;
-      document.querySelectorAll('.sgbtn').forEach(x=>{
-        if(x.id!='sgbtn-'+s)x.className='sgbtn';
-      });
-      b.className='sgbtn testing';
-    };
-    grid.appendChild(b);
-  });
-}
-
-window.resetSignBoard=function(){
-  testingSign=null;
-  document.querySelectorAll('.sgbtn').forEach(b=>b.className='sgbtn');
-};
-
-window.toggleLock=function(){
-  paused=!paused;
-  document.getElementById('lock-btn').textContent=paused?'▶ Resume detection':'⏸ Pause detection';
-  if(!paused)resetClassifierDisplay();
-};
-
-window.updateHoldTime=function(v){
-  holdFrames=parseInt(v);
-  document.getElementById('hold-val').textContent=v+' frames';
-};
-window.updateCooldown=function(v){
-  cooldownFrames=parseInt(v);
-  document.getElementById('cool-val').textContent=v+' frames';
-};
-
-// ══════════════════════════════════════════════════════════
-// TAB 2 — RAW DEBUGGER
-// ══════════════════════════════════════════════════════════
-
-function buildSignButtons(){
-  const cont=document.getElementById('sign-btns');
-  SIGNS.forEach(s=>{
-    const b=document.createElement('button');
-    b.className='sbtn'+(s==='A'?' active':'');
-    b.textContent=s;
-    b.onclick=()=>{
-      document.querySelectorAll('.sbtn').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active');
-      selectedSign=s;
-      document.getElementById('capture-btn').textContent=`📸 Capture snapshot for [${s}]`;
-    };
-    cont.appendChild(b);
-  });
-}
-
-function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=(a.z||0)-(b.z||0);return Math.sqrt(dx*dx+dy*dy+dz*dz)}
-
-function getFState(lm,tip,pip,mcp){
-  const tY=lm[tip].y,pY=lm[pip].y,mY=lm[mcp].y;
-  if(tY<pY&&tY<mY)return 2;
-  if(tY<mY)return 1;
-  return 0;
-}
-
-function getThumbState(lm){
-  const tY=lm[THUMB_TIP].y,iY=lm[THUMB_IP].y,mY=lm[THUMB_MCP].y,cY=lm[THUMB_CMC].y;
-  if(tY<iY&&tY<mY)return 2;
-  if(tY<cY)return 1;
-  return 0;
-}
-
-function computeAll(lm){
-  const handScale=dist(lm[WRIST],lm[MIDDLE_TIP]);
-  const fingerScale=dist(lm[INDEX_MCP],lm[WRIST]);
-  const thumbV6=getThumbState(lm);
-  const sideV6=lm[THUMB_TIP].y<lm[THUMB_CMC].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
-  const sideX=Math.abs(lm[THUMB_TIP].x-lm[INDEX_MCP].x)>fingerScale*0.40;
-  const _tipToMCP=dist(lm[THUMB_TIP],lm[INDEX_MCP]);
-  const _tipToWrist=dist(lm[THUMB_TIP],lm[WRIST]);
-  const wrappedV6=(_tipToMCP/handScale<0.55)&&(_tipToWrist/handScale>0.35);
-  const betweenY=lm[THUMB_TIP].y>lm[INDEX_PIP].y&&lm[THUMB_TIP].y<lm[INDEX_MCP].y;
-  const xMin=Math.min(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)-0.03;
-  const xMax=Math.max(lm[INDEX_MCP].x,lm[MIDDLE_MCP].x)+0.03;
-  const between=betweenY&&lm[THUMB_TIP].x>=xMin&&lm[THUMB_TIP].x<=xMax;
-  const belowPIP=lm[THUMB_TIP].y>lm[INDEX_PIP].y;
-  const allTips=[lm[INDEX_TIP],lm[MIDDLE_TIP],lm[RING_TIP],lm[PINKY_TIP]];
-  const avgX=(allTips.reduce((s,t)=>s+t.x,0)+lm[THUMB_TIP].x)/5;
-  const avgY2=(allTips.reduce((s,t)=>s+t.y,0)+lm[THUMB_TIP].y)/5;
-  const spread=allTips.reduce((s,t)=>s+Math.sqrt((t.x-avgX)**2+(t.y-avgY2)**2),0)/4;
-  const tipsClose=spread/handScale<0.38;
-  const thumbToIdxTip=dist(lm[THUMB_TIP],lm[INDEX_TIP]);
-  const curvedV6=thumbToIdxTip/handScale<0.60;
-  const iMSpread=dist(lm[INDEX_TIP],lm[MIDDLE_TIP]);
-  const iMSpreadNorm=iMSpread/handScale;
-  const fingersCrossed=iMSpreadNorm<0.18;
-  const indexVertical=(lm[INDEX_MCP].y-lm[INDEX_TIP].y)/handScale>0.40;
-  const thumbToIdxTipNorm=thumbToIdxTip/handScale;
-  const spreadNorm=spread/handScale;
-  return{thumbV6,sideV6,sideX,wrappedV6,between,belowPIP,tipsClose,curvedV6,
-    fingersCrossed,indexVertical,iMSpreadNorm,
-    tipVsCMC:(lm[THUMB_TIP].y-lm[THUMB_CMC].y).toFixed(3),
-    tipVsMCP:(lm[THUMB_TIP].y-lm[THUMB_MCP].y).toFixed(3),
-    tipVsIP:(lm[THUMB_TIP].y-lm[THUMB_IP].y).toFixed(3),
-    tipVsIdxPIP:(lm[THUMB_TIP].y-lm[INDEX_PIP].y).toFixed(3),
-    tipVsIdxMCP:(lm[THUMB_TIP].y-lm[INDEX_MCP].y).toFixed(3),
-    thumbToIdxTip:thumbToIdxTip.toFixed(3),
-    thumbToIdxMCP:dist(lm[THUMB_TIP],lm[INDEX_MCP]).toFixed(3),
-    fingerScale:fingerScale.toFixed(3),
-    handScale:handScale.toFixed(3),
-    spread:spread.toFixed(4),
-    thumbToIdxTipNorm:thumbToIdxTipNorm.toFixed(3),
-    spreadNorm:spreadNorm.toFixed(3),
-    iMSpreadNormStr:iMSpreadNorm.toFixed(3),
-  };
-}
-
-function updateRawPanel(lm){
-  const vals=computeAll(lm);
-  const tsV6=vals.thumbV6;
-  const fs=[tsV6,
-    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
-    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
-    getFState(lm,RING_TIP,RING_PIP,RING_MCP),
-    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
-  document.getElementById('fs-display2').textContent='['+fs.join(', ')+']';
-
-  const tbody=document.getElementById('lm-tbody');
-  const ys=KEY_LM.map(i=>lm[i].y);
-  const minY=Math.min(...ys),maxY=Math.max(...ys);
-  tbody.innerHTML=KEY_LM.map(i=>{
-    const y=lm[i].y.toFixed(4),x=lm[i].x.toFixed(4);
-    const cls=lm[i].y===minY?'hi':lm[i].y===maxY?'lo':'';
-    return`<tr><td class="name">${LM_NAMES[i]}</td><td class="num ${cls}">y=${y}</td><td class="num" style="color:var(--muted)">x=${x}</td></tr>`;
-  }).join('');
-
-  const rows=[
-    ['thumbState (0/1/2)',vals.thumbV6,'num'],
-    ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],
-    ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'],
-    ['thumbBetween (T tb)',vals.between,'bool'],
-    ['belowPIP (Q/G/K tb)',vals.belowPIP,'bool'],
-    ['tipsClose ✅ (E/O tb)',vals.tipsClose,'bool'],
-    ['curvedIn (C tb)',vals.curvedV6,'bool'],
-    ['fingersCrossed (R tb)',vals.fingersCrossed,'bool'],
-    ['indexVertical (D/L tb)',vals.indexVertical,'bool'],
-    ['tipΔCMC',vals.tipVsCMC,'delta'],
-    ['tipΔIdxPIP',vals.tipVsIdxPIP,'delta'],
-    ['thumbNorm ✅ (fist tb)',vals.thumbToIdxTipNorm,'dist'],
-    ['iMSpreadNorm (U/V tb)',vals.iMSpreadNormStr,'dist'],
-    ['spreadNorm (C/O tb)',vals.spreadNorm,'dist'],
-    ['handScale (WRIST→TIP)',vals.handScale,'dist'],
-  ];
-  document.getElementById('tb-grid').innerHTML=rows.map(([n,v,t])=>{
-    let cls='tb-val n',display=v;
-    if(t==='bool'){cls=v?'tb-val t':'tb-val f';display=v?'TRUE':'false';}
-    else if(t==='delta'){cls=parseFloat(v)<0?'tb-val t':'tb-val f';}
-    return`<div class="tb-row"><span class="tb-name">${n}</span><span class="${cls}">${display}</span></div>`;
-  }).join('');
-}
-
-document.getElementById('capture-btn').onclick=()=>{
-  if(!lastLM){alert('No hand detected');return;}
-  const lm=lastLM;
-  const vals=computeAll(lm);
-  const tsV6=vals.thumbV6;
-  const fs=[tsV6,
-    getFState(lm,INDEX_TIP,INDEX_PIP,INDEX_MCP),
-    getFState(lm,MIDDLE_TIP,MIDDLE_PIP,MIDDLE_MCP),
-    getFState(lm,RING_TIP,RING_PIP,RING_MCP),
-    getFState(lm,PINKY_TIP,PINKY_PIP,PINKY_MCP)];
-  const fsBin=fs.map(v=>v>=1?1:0);
-  const log=document.getElementById('capture-log');
-  const t=new Date();
-  const ts=`${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
-  const entry=document.createElement('div');
-  entry.className='cl-entry';
-  entry.innerHTML=`<span class="cl-sign">${ts} [${selectedSign}]</span><span style="color:var(--text)">
-  fs=[${fs.join(',')}] bin=[${fsBin.join(',')}]
-  side=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'}
-  tipsClose=${vals.tipsClose?'T':'F'} thumbNorm=${vals.thumbToIdxTipNorm}</span>`;
-  log.appendChild(entry);
-  log.scrollTop=log.scrollHeight;
-};
-
-document.getElementById('clear-log-btn').onclick=()=>{
-  document.getElementById('capture-log').innerHTML='Hold a sign and press capture…';
-};
-
-// ══════════════════════════════════════════════════════════
-// TAB 3 — STATIC CAPTURE (PATH 3)
-// ══════════════════════════════════════════════════════════
-
-function buildSignProgressGrid(){
-  const grid = document.getElementById('sign-progress-grid');
-  grid.innerHTML = '';
-  STATIC_SIGNS.forEach(sign => {
-    const cell = document.createElement('div');
-    cell.className = 'sp-cell' + (sign === activeStaticSign ? ' active-sign' : '');
-    cell.id = 'sp-cell-' + sign;
-    cell.onclick = (e) => {
-      // Don't activate when clicking delete btn
-      if(e.target.classList.contains('sp-del')) return;
-      setActiveStaticSign(sign);
-    };
-
-    // Delete button — deletes last 1 capture for this sign
-    const delBtn = document.createElement('button');
-    delBtn.className = 'sp-del';
-    delBtn.title = 'Delete last capture for ' + sign;
-    delBtn.textContent = '✕';
-    delBtn.onclick = (e) => {
-      e.stopPropagation();
-      deleteLastStaticCapture(sign);
-    };
-
-    cell.innerHTML = `
-      <div class="sp-letter">${sign}</div>
-      <div class="sp-count" id="sp-count-${sign}">0 / ${STATIC_TARGET}</div>
-      <div class="sp-bar"><div class="sp-fill" id="sp-fill-${sign}" style="width:0%"></div></div>
-    `;
-    cell.appendChild(delBtn);
-    grid.appendChild(cell);
-  });
-  updateStaticCountTable();
-}
-
-function setActiveStaticSign(sign){
-  activeStaticSign = sign;
-  document.querySelectorAll('.sp-cell').forEach(c => c.classList.remove('active-sign'));
-  const cell = document.getElementById('sp-cell-' + sign);
-  if(cell) cell.classList.add('active-sign');
-  document.getElementById('active-sign-display').textContent = sign;
-  updateActiveStripCount();
-}
-
-function countForSign(sign){
-  return staticCaptures.filter(c => c.label === sign).length;
-}
-
-function updateActiveStripCount(){
-  const n = countForSign(activeStaticSign);
-  document.getElementById('active-sign-count-strip').textContent =
-    `${activeStaticSign}: ${n} / ${STATIC_TARGET}`;
-}
-
-function updateSignCell(sign){
-  const n = countForSign(sign);
-  const countEl = document.getElementById('sp-count-' + sign);
-  const fillEl  = document.getElementById('sp-fill-'  + sign);
-  const cell    = document.getElementById('sp-cell-'  + sign);
-  if(countEl) countEl.textContent = `${n} / ${STATIC_TARGET}`;
-  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / STATIC_TARGET) * 100)) + '%';
-  if(cell){
-    if(n >= STATIC_TARGET) cell.classList.add('done');
-    else cell.classList.remove('done');
-  }
-}
-
-function updateStaticCountTable(){
-  const tbl = document.getElementById('count-table');
-  tbl.innerHTML = STATIC_SIGNS.map(sign => {
-    const n = countForSign(sign);
-    const done = n >= STATIC_TARGET;
-    const color = done ? 'var(--green)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
-    return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:11px">
-      <span style="color:${done ? 'var(--green)' : 'var(--muted)'}">${sign}</span>
-      <span style="color:${color};font-weight:700">${n}</span>
-    </div>`;
-  }).join('');
-}
-
-function flashScreen(){
-  const el = document.getElementById('capture-flash');
-  el.className = 'capture-flash';
-  void el.offsetWidth;
-  el.classList.add('flash');
-  setTimeout(() => el.className = 'capture-flash', 120);
-}
-
-function flashSignCell(sign){
-  const cell = document.getElementById('sp-cell-' + sign);
-  if(!cell) return;
-  cell.classList.remove('flash');
-  void cell.offsetWidth;
-  cell.classList.add('flash');
-  setTimeout(() => cell.classList.remove('flash'), 280);
-}
-
-function addToMiniLog(sign, total){
-  const t = new Date();
-  const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
-  recentLog.unshift({ sign, ts, total });
-  if(recentLog.length > 40) recentLog.pop();
-  const log = document.getElementById('mini-log');
-  log.innerHTML = recentLog.map(e =>
-    `<div class="ml-entry">
-      <span class="ml-sign-badge">${e.sign}</span>
-      <span style="color:var(--muted)">#${e.total}</span>
-      <span class="ml-ts">${e.ts}</span>
-    </div>`
-  ).join('');
-}
-
-// ── Main static capture function ──
-window.captureStatic = function(){
-  const lm = window._currentLandmarks;
-  if(!lm || lm.length !== 21){
-    const btn = document.getElementById('btn-static-capture');
-    const orig = btn.textContent;
-    btn.textContent = '⚠️ No hand detected!';
-    btn.style.borderColor = 'var(--red)';
-    btn.style.color = 'var(--red)';
-    setTimeout(() => {
-      btn.textContent = orig;
-      btn.style.borderColor = '';
-      btn.style.color = '';
-    }, 900);
-    return;
-  }
-
-  const flat = lm.flatMap(p => [p.x, p.y, p.z]);
-  staticCaptures.push({ label: activeStaticSign, landmarks: flat });
-
-  const total = staticCaptures.length;
-  document.getElementById('total-count').textContent = total;
-  updateSignCell(activeStaticSign);
-  updateActiveStripCount();
-  updateStaticCountTable();
-  flashScreen();
-  flashSignCell(activeStaticSign);
-  addToMiniLog(activeStaticSign, total);
-
-  // Auto-advance to next sign if target reached
-  const n = countForSign(activeStaticSign);
-  if(n === STATIC_TARGET){
-    const idx = STATIC_SIGNS.indexOf(activeStaticSign);
-    if(idx < STATIC_SIGNS.length - 1){
-      setTimeout(() => setActiveStaticSign(STATIC_SIGNS[idx + 1]), 400);
-    }
-  }
-};
-
-// ── DELETE last N captures for a given sign ──
-// Shows a prompt so user can type how many to delete
-function deleteLastStaticCapture(sign){
-  const current = countForSign(sign);
-  if(current === 0){ alert(`No captures for ${sign} to delete.`); return; }
-
-  const input = prompt(
-    `Delete captures for "${sign}".\nCurrently: ${current}\nHow many to delete? (1–${current})`,
-    '1'
-  );
-  if(input === null) return; // cancelled
-  const n = parseInt(input);
-  if(isNaN(n) || n < 1 || n > current){
-    alert(`Please enter a number between 1 and ${current}.`);
-    return;
-  }
-
-  // Remove the LAST n entries for this sign
-  let removed = 0;
-  for(let i = staticCaptures.length - 1; i >= 0 && removed < n; i--){
-    if(staticCaptures[i].label === sign){
-      staticCaptures.splice(i, 1);
-      removed++;
-    }
-  }
-
-  document.getElementById('total-count').textContent = staticCaptures.length;
-  updateSignCell(sign);
-  updateActiveStripCount();
-  updateStaticCountTable();
-
-  // Update mini-log to show deletion
-  recentLog.unshift({ sign: `−${n}×${sign}`, ts: 'deleted', total: staticCaptures.length });
-  if(recentLog.length > 40) recentLog.pop();
-  const log = document.getElementById('mini-log');
-  log.innerHTML = recentLog.map(e =>
-    `<div class="ml-entry">
-      <span class="ml-sign-badge" style="color:var(--red)">${e.sign}</span>
-      <span style="color:var(--muted)">${e.total}</span>
-      <span class="ml-ts">${e.ts}</span>
-    </div>`
-  ).join('');
-}
-
-window.exportStaticJSON = function(){
-  if(staticCaptures.length === 0){
-    alert('No captures yet. Capture some signs first.');
-    return;
-  }
-  const blob = new Blob([JSON.stringify(staticCaptures, null, 2)], { type: 'application/json' });
-  const a    = document.createElement('a');
-  a.href     = URL.createObjectURL(blob);
-  a.download = 'static_data.json';   // save as static_data.json → put into data/ folder in repo
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
-
-window.clearStaticData = function(){
-  if(!confirm(`Clear all ${staticCaptures.length} captures? This cannot be undone.`)) return;
-  staticCaptures = [];
-  recentLog      = [];
-  document.getElementById('total-count').textContent = '0';
-  document.getElementById('mini-log').innerHTML = 'No captures yet — show your hand and press Space…';
-  STATIC_SIGNS.forEach(s => updateSignCell(s));
-  updateActiveStripCount();
-  updateStaticCountTable();
-};
-
-// ── Keyboard shortcuts ──
-window.addEventListener('keydown', e => {
-  // Space → static capture (Tab 3 only)
-  if(e.code === 'Space' && document.activeElement.tagName !== 'TEXTAREA'){
-    const panel = document.getElementById('panel-capture');
-    if(panel.classList.contains('active')){
-      e.preventDefault();
-      window.captureStatic();
-    }
-  }
-  // R → motion record (Tab 4 only)
-  if(e.code === 'KeyR' && document.activeElement.tagName !== 'TEXTAREA'){
-    const panel = document.getElementById('panel-motion');
-    if(panel.classList.contains('active')){
-      e.preventDefault();
-      recordMotion();
-    }
-  }
-  // Arrow keys to cycle signs in Tab 3
-  if(document.getElementById('panel-capture').classList.contains('active')){
-    if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
-      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
-      if(idx < STATIC_SIGNS.length - 1) setActiveStaticSign(STATIC_SIGNS[idx + 1]);
-    }
-    if(e.code === 'ArrowLeft' || e.code === 'ArrowUp'){
-      const idx = STATIC_SIGNS.indexOf(activeStaticSign);
-      if(idx > 0) setActiveStaticSign(STATIC_SIGNS[idx - 1]);
-    }
-  }
-  // Arrow keys to cycle words in Tab 4
-  if(document.getElementById('panel-motion').classList.contains('active')){
-    if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
-      const idx = MOTION_SIGNS.indexOf(activeMotionSign);
-      if(idx < MOTION_SIGNS.length - 1) setActiveMotionSign(MOTION_SIGNS[idx + 1]);
-    }
-    if(e.code === 'ArrowLeft' || e.code === 'ArrowUp'){
-      const idx = MOTION_SIGNS.indexOf(activeMotionSign);
-      if(idx > 0) setActiveMotionSign(MOTION_SIGNS[idx - 1]);
-    }
-  }
-});
-
-// ══════════════════════════════════════════════════════════
-// TAB 4 — MOTION / SEQUENCE CAPTURE
-// ══════════════════════════════════════════════════════════
-
-function buildMotionProgressGrid(){
-  const grid = document.getElementById('motion-progress-grid');
-  grid.innerHTML = '';
-  MOTION_SIGNS.forEach(sign => {
-    const cell = document.createElement('div');
-    cell.className = 'sp-cell' + (sign === activeMotionSign ? ' active-sign' : '');
-    cell.id = 'mp-cell-' + sign;
-    // Override active-sign color to purple for motion tab
-    if(sign === activeMotionSign) cell.style.borderColor = 'var(--purple)';
-    cell.onclick = (e) => {
-      if(e.target.classList.contains('sp-del')) return;
-      setActiveMotionSign(sign);
-    };
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'sp-del';
-    delBtn.title = 'Delete last sequence(s) for ' + sign;
-    delBtn.textContent = '✕';
-    delBtn.onclick = (e) => {
-      e.stopPropagation();
-      deleteLastMotionCapture(sign);
-    };
-
-    cell.innerHTML = `
-      <div class="sp-letter" style="font-size:10px;word-break:break-word;line-height:1.2">${sign}</div>
-      <div class="sp-count" id="mp-count-${sign}">0 / ${MOTION_TARGET}</div>
-      <div class="sp-bar"><div class="sp-fill" id="mp-fill-${sign}" style="width:0%;background:var(--purple)"></div></div>
-    `;
-    cell.appendChild(delBtn);
-    grid.appendChild(cell);
-  });
-  updateMotionCountTable();
-}
-
-function setActiveMotionSign(sign){
-  activeMotionSign = sign;
-  document.querySelectorAll('#motion-progress-grid .sp-cell').forEach(c => {
-    c.classList.remove('active-sign');
-    c.style.borderColor = '';
-  });
-  const cell = document.getElementById('mp-cell-' + sign);
-  if(cell){ cell.classList.add('active-sign'); cell.style.borderColor = 'var(--purple)'; }
-  document.getElementById('active-motion-sign-display').textContent = sign;
-  updateActiveMotionStripCount();
-}
-
-function countForMotionSign(sign){
-  return motionCaptures.filter(c => c.label === sign).length;
-}
-
-function updateActiveMotionStripCount(){
-  const n = countForMotionSign(activeMotionSign);
-  document.getElementById('active-motion-count-strip').textContent =
-    `${activeMotionSign}: ${n} / ${MOTION_TARGET}`;
-}
-
-function updateMotionCell(sign){
-  const n = countForMotionSign(sign);
-  const countEl = document.getElementById('mp-count-' + sign);
-  const fillEl  = document.getElementById('mp-fill-'  + sign);
-  const cell    = document.getElementById('mp-cell-'  + sign);
-  if(countEl) countEl.textContent = `${n} / ${MOTION_TARGET}`;
-  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / MOTION_TARGET) * 100)) + '%';
-  if(cell){
-    if(n >= MOTION_TARGET) cell.classList.add('done');
-    else cell.classList.remove('done');
-  }
-}
-
-function updateMotionCountTable(){
-  const tbl = document.getElementById('motion-count-table');
-  tbl.innerHTML = MOTION_SIGNS.map(sign => {
-    const n = countForMotionSign(sign);
-    const done = n >= MOTION_TARGET;
-    const color = done ? 'var(--purple)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
-    return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:10px">
-      <span style="color:${done ? 'var(--purple)' : 'var(--muted)'}">${sign}</span>
-      <span style="color:${color};font-weight:700">${n}</span>
-    </div>`;
-  }).join('');
-}
-
-function updateRecordingUI(){
-  const n = recordBuffer.length;
-  const pct = Math.min(100, Math.round((n / SEQ_FRAMES) * 100));
-  document.getElementById('seq-frame-count').textContent = n;
-  document.getElementById('seq-bar').style.width = pct + '%';
-  document.getElementById('seq-progress-wrap').style.display = 'block';
-}
-
-function finishRecording(){
-  isRecording = false;
-  const sequence = [...recordBuffer];
-  recordBuffer = [];
-
-  // Save
-  motionCaptures.push({ label: activeMotionSign, sequence });
-
-  const total = motionCaptures.length;
-  document.getElementById('motion-total-count').textContent = total;
-  updateMotionCell(activeMotionSign);
-  updateActiveMotionStripCount();
-  updateMotionCountTable();
-
-  // Reset recording UI
-  const btn = document.getElementById('btn-motion-record');
-  btn.classList.remove('recording');
-  btn.textContent = '🎬  RECORD  ';
-  btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
-  document.getElementById('seq-progress-wrap').style.display = 'none';
-  document.getElementById('seq-bar').style.width = '0%';
-
-  // Flash green
-  flashScreen();
-
-  // Add to mini log
-  const t = new Date();
-  const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
-  motionRecentLog.unshift({ sign: activeMotionSign, ts, total });
-  if(motionRecentLog.length > 40) motionRecentLog.pop();
-  const log = document.getElementById('motion-mini-log');
-  log.innerHTML = motionRecentLog.map(e =>
-    `<div class="ml-entry">
-      <span class="ml-sign-badge" style="color:var(--purple)">${e.sign}</span>
-      <span style="color:var(--muted)">#${e.total}</span>
-      <span class="ml-ts">${e.ts}</span>
-    </div>`
-  ).join('');
-
-  // Auto-advance to next word if target reached
-  const n = countForMotionSign(activeMotionSign);
-  if(n === MOTION_TARGET){
-    const idx = MOTION_SIGNS.indexOf(activeMotionSign);
-    if(idx < MOTION_SIGNS.length - 1){
-      setTimeout(() => setActiveMotionSign(MOTION_SIGNS[idx + 1]), 500);
-    }
-  }
-}
-
-window.recordMotion = function(){
-  if(isRecording){
-    // Manual cancel
-    isRecording = false;
-    recordBuffer = [];
-    const btn = document.getElementById('btn-motion-record');
-    btn.classList.remove('recording');
-    btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
-    document.getElementById('seq-progress-wrap').style.display = 'none';
-    document.getElementById('seq-bar').style.width = '0%';
-    return;
-  }
-
-  // Start recording
-  isRecording  = true;
-  recordBuffer = [];
-  const btn = document.getElementById('btn-motion-record');
-  btn.classList.add('recording');
-  btn.innerHTML = '⏹ &nbsp;STOP RECORDING &nbsp;<span class="kbd">R</span>';
-
-  // Initialize frame counter UI
-  document.getElementById('seq-target-frames').textContent = SEQ_FRAMES;
-  document.getElementById('seq-frame-count').textContent = '0';
-  document.getElementById('seq-bar').style.width = '0%';
-  document.getElementById('seq-progress-wrap').style.display = 'block';
-};
-
-function deleteLastMotionCapture(sign){
-  const current = countForMotionSign(sign);
-  if(current === 0){ alert(`No sequences for "${sign}" to delete.`); return; }
-
-  const input = prompt(
-    `Delete sequences for "${sign}".\nCurrently: ${current}\nHow many to delete? (1–${current})`,
-    '1'
-  );
-  if(input === null) return;
-  const n = parseInt(input);
-  if(isNaN(n) || n < 1 || n > current){
-    alert(`Please enter a number between 1 and ${current}.`);
-    return;
-  }
-
-  let removed = 0;
-  for(let i = motionCaptures.length - 1; i >= 0 && removed < n; i--){
-    if(motionCaptures[i].label === sign){
-      motionCaptures.splice(i, 1);
-      removed++;
-    }
-  }
-
-  document.getElementById('motion-total-count').textContent = motionCaptures.length;
-  updateMotionCell(sign);
-  updateActiveMotionStripCount();
-  updateMotionCountTable();
-
-  motionRecentLog.unshift({ sign: `−${n}×${sign}`, ts: 'deleted', total: motionCaptures.length });
-  if(motionRecentLog.length > 40) motionRecentLog.pop();
-  const log = document.getElementById('motion-mini-log');
-  log.innerHTML = motionRecentLog.map(e =>
-    `<div class="ml-entry">
-      <span class="ml-sign-badge" style="color:var(--red)">${e.sign}</span>
-      <span style="color:var(--muted)">${e.total}</span>
-      <span class="ml-ts">${e.ts}</span>
-    </div>`
-  ).join('');
-}
-
-window.exportMotionJSON = function(){
-  if(motionCaptures.length === 0){
-    alert('No sequences yet. Record some motion signs first.');
-    return;
-  }
-  const blob = new Blob([JSON.stringify(motionCaptures, null, 2)], { type: 'application/json' });
-  const a    = document.createElement('a');
-  a.href     = URL.createObjectURL(blob);
-  a.download = 'sequence_data.json';  // put this into data/ folder in repo
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
-
-window.clearMotionData = function(){
-  if(!confirm(`Clear all ${motionCaptures.length} sequences? This cannot be undone.`)) return;
-  motionCaptures   = [];
-  motionRecentLog  = [];
-  document.getElementById('motion-total-count').textContent = '0';
-  document.getElementById('motion-mini-log').innerHTML = 'No sequences yet — press R to record…';
-  MOTION_SIGNS.forEach(s => updateMotionCell(s));
-  updateActiveMotionStripCount();
-  updateMotionCountTable();
-};
-
-window.updateFrameTarget = function(v){
-  SEQ_FRAMES = parseInt(v);
-  document.getElementById('frames-val').textContent = v;
-  document.getElementById('seq-target-frames').textContent = v;
-};
-
-// ── Skeleton draw ──
-const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
-            [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
-
-function drawSkeletonOnCtx(ctx,lm,w,h){
-  ctx.strokeStyle='#FFFFFF55';ctx.lineWidth=1.5;
-  for(const[a,b]of CONN){
-    ctx.beginPath();
-    ctx.moveTo(lm[a].x*w,lm[a].y*h);
-    ctx.lineTo(lm[b].x*w,lm[b].y*h);
-    ctx.stroke();
-  }
-  for(let i=0;i<21;i++){
-    const tip=[4,8,12,16,20].includes(i);
-    ctx.beginPath();
-    ctx.arc(lm[i].x*w,lm[i].y*h,tip?6:3.5,0,Math.PI*2);
-    ctx.fillStyle=tip?'#FFFFFF':'#00e5a0';ctx.fill();
-  }
-}
-
-function clearCanvas(canvas){
-  if(canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
-}
-
-init();
-</script>
+<script type="module" src="js/m2-test.js"></script>
 </body>
 </html>
