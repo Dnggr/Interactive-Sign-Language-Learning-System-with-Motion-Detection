@@ -10,12 +10,24 @@
  *   /asl_static_model/model.json
  *   /asl_static_model/labels.json
  *   /asl_static_model/group1-shard1of1.bin
+ *
+ * FIX LOG:
+ *   - tf.io.fromMemory() was called with 3 positional args (wrong).
+ *     Correct signature is tf.io.fromMemory({ modelTopology, weightsManifest, weightData }).
+ *     The old call silently produced a broken IOHandler that tf.loadLayersModel() crashed on.
+ *
+ *   - probs[] was assigned inside tf.tidy() via side-effect, which is fragile.
+ *     Restructured runClassifier() so probs is extracted cleanly outside tidy.
+ *
+ *   - DOMContentLoaded listener for the autolog toggle was unreliable when the
+ *     module script executes after DOM parse. Replaced with a safe init-time hookup.
  */
 
 import { HandLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
-import * as tf
-  from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js';
+
+// tf comes from the UMD <script> tag in m2-test.html — it is a global, NOT an ES module.
+// Do NOT attempt to import tf here. It is available as window.tf.
 
 // ══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -43,7 +55,7 @@ let fpsCounter        = 0;
 let allProbs          = [];   // last full probability array from model
 
 // ══════════════════════════════════════════════════════════
-// SKELETON DRAWING (same as m2-capture.js)
+// SKELETON DRAWING
 // ══════════════════════════════════════════════════════════
 
 const CONNECTIONS = [
@@ -140,7 +152,49 @@ async function init() {
     setDot('model-dot', 'loading');
     document.getElementById('model-status-text').textContent = 'TF.js model — loading…';
 
-    staticModel = await tf.loadLayersModel('/asl_static_model/model.json');
+    // Keras 3 names weights as "asl_static_model/dense/kernel" but TF.js 4.x
+    // expects just "dense/kernel" — patch the manifest before loading.
+    const modelJsonResp = await fetch('/asl_static_model/model.json');
+    const modelJson     = await modelJsonResp.json();
+
+    // Strip the "asl_static_model/" prefix from every weight name
+    modelJson.weightsManifest.forEach(group => {
+      group.weights.forEach(w => {
+        w.name = w.name.replace(/^asl_static_model\//, '');
+      });
+    });
+
+    // Fix Keras 3 InputLayer: rename "batch_shape" → "batchInputShape"
+    modelJson.modelTopology.model_config.config.layers.forEach(layer => {
+      if (layer.class_name === 'InputLayer' && layer.config.batch_shape) {
+        layer.config.batchInputShape = layer.config.batch_shape;
+        delete layer.config.batch_shape;
+      }
+    });
+
+    const weightsResp   = await fetch('/asl_static_model/group1-shard1of1.bin');
+    const weightsBuffer = await weightsResp.arrayBuffer();
+
+    // ────────────────────────────────────────────────────────────────────────
+    // FIX: tf.io.fromMemory() takes a SINGLE object, NOT 3 positional args.
+    //
+    // WRONG (old code):
+    //   tf.io.fromMemory(modelJson.modelTopology, modelJson.weightsManifest, weightsBuffer)
+    //
+    // CORRECT:
+    //   tf.io.fromMemory({
+    //     modelTopology:    modelJson.modelTopology,
+    //     weightsManifest:  modelJson.weightsManifest,
+    //     weightData:       weightsBuffer        // ← key name is weightData, not weights
+    //   })
+    // ────────────────────────────────────────────────────────────────────────
+    const modelArtifacts = tf.io.fromMemory({
+      modelTopology:   modelJson.modelTopology,
+      weightsManifest: modelJson.weightsManifest,
+      weightData:      weightsBuffer
+    });
+
+    staticModel = await tf.loadLayersModel(modelArtifacts);
 
     setDot('model-dot', 'ok');
     document.getElementById('model-status-text').style.color = 'var(--green)';
@@ -162,6 +216,15 @@ async function init() {
     // ── Build UI grids ────────────────────────────────────
     buildSignSelectorGrid();
     buildAuditSignGrid();
+
+    // ── Wire up autolog toggle (safe — DOM is definitely ready by now) ────
+    const toggle = document.getElementById('autolog-toggle');
+    if (toggle) {
+      toggle.addEventListener('change', () => {
+        autologEnabled = toggle.checked;
+        document.getElementById('autolog-label').textContent = toggle.checked ? 'ON' : 'OFF';
+      });
+    }
 
     setStatus('✅ All systems ready — show your hand', 'ok');
     document.getElementById('hand-status-pill').textContent = 'No hand';
@@ -257,22 +320,22 @@ function loop() {
 
 function runClassifier(landmarks) {
   const flat  = landmarks.flatMap(p => [p.x, p.y, p.z]);
-  const input = tf.tensor2d([flat]);
+  const input = tf.tensor2d([flat]);   // shape [1, 63]
 
-  let label      = null;
-  let confidence = 0;
-  let probs      = [];
-
-  tf.tidy(() => {
-    const output = staticModel.predict(input);
-    probs        = Array.from(output.dataSync());
-    const maxIdx = probs.indexOf(Math.max(...probs));
-    confidence   = Math.round(probs[maxIdx] * 100);
-    label        = labelsMap[String(maxIdx)] ?? null;
-  });
-
+  // FIX: extract the output tensor BEFORE tf.tidy() disposes it.
+  // tf.tidy() runs synchronously and disposes every tensor created inside it
+  // after the callback returns. dataSync() is fine inside tidy, but assigning
+  // to outer variables via side-effect is fragile. Cleaner approach below.
+  const outputTensor = staticModel.predict(input);
+  const rawProbs     = Array.from(outputTensor.dataSync());  // plain JS array — safe
+  outputTensor.dispose();
   input.dispose();
-  return { label, confidence, probs };
+
+  const maxIdx   = rawProbs.indexOf(Math.max(...rawProbs));
+  const confidence = Math.round(rawProbs[maxIdx] * 100);
+  const label      = labelsMap[String(maxIdx)] ?? null;
+
+  return { label, confidence, probs: rawProbs };
 }
 
 // ══════════════════════════════════════════════════════════
@@ -296,7 +359,6 @@ function setStatus(msg, cls) {
 }
 
 function setDot(id, state) {
-  // state: 'loading' | 'ok' | 'err'
   const el = document.getElementById(id);
   if (!el) return;
   el.style.background = state === 'ok'      ? 'var(--green)'
@@ -366,7 +428,6 @@ window.setMode = function(mode) {
   const block = document.getElementById('sign-selector-block');
   if (block) block.style.display = mode === 'filter' ? 'block' : 'none';
 
-  // Set a default watch sign if none selected
   if (mode === 'filter' && !testWatchSign && ALL_SIGNS.length) {
     setWatchSign(ALL_SIGNS[0]);
   }
@@ -378,17 +439,6 @@ window.clearLog = function() {
     '<div class="empty-state">Auto-logged detections appear here</div>';
 };
 
-// Auto-log toggle
-document.addEventListener('DOMContentLoaded', () => {
-  const toggle = document.getElementById('autolog-toggle');
-  if (toggle) {
-    toggle.addEventListener('change', () => {
-      autologEnabled = toggle.checked;
-      document.getElementById('autolog-label').textContent = toggle.checked ? 'ON' : 'OFF';
-    });
-  }
-});
-
 function onStaticResult(label, confidence) {
   const resultCard   = document.getElementById('result-card');
   const resultLabel  = document.getElementById('result-label');
@@ -398,8 +448,8 @@ function onStaticResult(label, confidence) {
   const liveDot      = document.getElementById('live-dot');
 
   if (!label) {
-    resultCard.className  = 'result-card no-hand';
-    resultLabel.className = 'result-label no-match';
+    resultCard.className    = 'result-card no-hand';
+    resultLabel.className   = 'result-label no-match';
     resultLabel.textContent = '–';
     resultConf.textContent  = '0%';
     resultConf.className    = 'result-conf low';
@@ -411,23 +461,21 @@ function onStaticResult(label, confidence) {
     return;
   }
 
-  // Filter mode: dim result if not the watched sign
   const isWatched = testMode === 'any' || label === testWatchSign;
   const matched   = confidence >= MATCH_THRESHOLD && isWatched;
 
-  resultCard.className  = matched ? 'result-card matched' : 'result-card';
-  resultLabel.className = matched ? 'result-label' : 'result-label unmatched';
+  resultCard.className    = matched ? 'result-card matched' : 'result-card';
+  resultLabel.className   = matched ? 'result-label' : 'result-label unmatched';
   resultLabel.textContent = label;
   resultConf.textContent  = confidence + '%';
   resultConf.className    = 'result-conf ' + confClass(confidence);
-  resultStatus.textContent = matched ? `Matched ≥${MATCH_THRESHOLD}%` : `Low confidence`;
+  resultStatus.textContent = matched ? `Matched ≥${MATCH_THRESHOLD}%` : 'Low confidence';
   confBar.style.width      = confidence + '%';
   confBar.style.background = confBarColor(confidence);
   liveDot.style.background = matched ? 'var(--green)' : 'var(--muted)';
 
   updateTop5(allProbs);
 
-  // Auto-log debounce
   if (autologEnabled && matched) {
     if (autologLastLabel !== label) {
       autologLastLabel = label;
@@ -447,14 +495,13 @@ function updateTop5(probs) {
     return;
   }
 
-  // Get top-5 indices sorted by probability
   const indexed = probs.map((p, i) => ({ i, p }));
   indexed.sort((a, b) => b.p - a.p);
   const top5 = indexed.slice(0, 5);
 
   body.innerHTML = top5.map((item, rank) => {
-    const sign = labelsMap[String(item.i)] ?? '?';
-    const pct  = Math.round(item.p * 100);
+    const sign  = labelsMap[String(item.i)] ?? '?';
+    const pct   = Math.round(item.p * 100);
     const isTop = rank === 0;
     return `
       <div class="top5-row${isTop ? ' winner' : ''}">
@@ -472,7 +519,6 @@ function appendLiveLog(label, confidence) {
   const body = document.getElementById('live-log-body');
   const now  = new Date().toLocaleTimeString('en-US', { hour12: false });
 
-  // Remove empty-state placeholder on first log
   if (body.querySelector('.empty-state')) body.innerHTML = '';
 
   const row = document.createElement('div');
@@ -487,10 +533,7 @@ function appendLiveLog(label, confidence) {
     <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${now}</span>`;
 
   body.prepend(row);
-
-  // Keep last 50 entries
   while (body.children.length > 50) body.removeChild(body.lastChild);
-
   liveLog.push({ label, confidence, time: now });
 }
 
@@ -499,7 +542,7 @@ function appendLiveLog(label, confidence) {
 // ══════════════════════════════════════════════════════════
 
 let auditSign         = null;
-let auditData         = {};   // { "A": { trials:0, correct:0 }, ... }
+let auditData         = {};
 let auditRunning      = false;
 let auditTrialsTarget = 10;
 let auditHoldTimer    = null;
@@ -536,7 +579,7 @@ window.startAuditSign = function() {
   if (!auditData[auditSign]) auditData[auditSign] = { trials: 0, correct: 0 };
 
   document.getElementById('audit-progress-text').textContent = `0 / ${auditTrialsTarget} trials`;
-  document.getElementById('audit-progress-bar').style.width = '0%';
+  document.getElementById('audit-progress-bar').style.width  = '0%';
 };
 
 window.resetAudit = function() {
@@ -544,10 +587,10 @@ window.resetAudit = function() {
   auditData       = {};
   auditTrialsDone = 0;
   clearTimeout(auditHoldTimer);
-  document.getElementById('audit-current-sign').textContent = '–';
+  document.getElementById('audit-current-sign').textContent  = '–';
   document.getElementById('audit-progress-text').textContent = 'Idle';
-  document.getElementById('audit-progress-bar').style.width = '0%';
-  document.getElementById('audit-table-body').innerHTML =
+  document.getElementById('audit-progress-bar').style.width  = '0%';
+  document.getElementById('audit-table-body').innerHTML      =
     '<div class="empty-state">Select a sign and press Start Test</div>';
   document.getElementById('stat-overall').textContent  = '–';
   document.getElementById('stat-tested').textContent   = '0';
@@ -561,7 +604,6 @@ function onAuditResult(label, confidence) {
   if (label !== auditLastLabel) {
     auditLastLabel = label;
     clearTimeout(auditHoldTimer);
-    // Debounce: hold detected sign for 600ms before counting as a trial
     auditHoldTimer = setTimeout(() => {
       if (!auditRunning) return;
       const entry = auditData[auditSign] || { trials: 0, correct: 0 };
@@ -615,7 +657,7 @@ function refreshAuditTable() {
 }
 
 function refreshAuditStats() {
-  const keys     = Object.keys(auditData);
+  const keys = Object.keys(auditData);
   let totalT = 0, totalC = 0, passing = 0;
   keys.forEach(s => {
     const d = auditData[s];
@@ -646,9 +688,7 @@ window.exportAuditCSV = function() {
 
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), {
-    href: url, download: 'audit_results.csv'
-  });
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'audit_results.csv' });
   a.click();
   URL.revokeObjectURL(url);
 };
@@ -664,10 +704,10 @@ let quizQueue        = [];
 let quizIdx          = 0;
 let quizCorrect      = 0;
 let quizTotal        = 0;
-let quizWaiting      = false;  // true after correct, waiting for Next
+let quizWaiting      = false;
 let quizHoldTimer    = null;
 let quizLastLabel    = null;
-const QUIZ_HOLD_MS   = 1200;   // ms to hold correct sign before auto-advance hint
+const QUIZ_HOLD_MS   = 1200;
 
 window.setQuizSet = function(set) {
   quizSet = set;
@@ -680,20 +720,18 @@ window.startQuiz = function() {
   quizRounds = parseInt(document.getElementById('quiz-rounds-slider').value);
 
   let pool;
-  if (quizSet === 'hard')  pool = ALL_SIGNS.filter(s => HARD_SIGNS.includes(s));
+  if (quizSet === 'hard')       pool = ALL_SIGNS.filter(s => HARD_SIGNS.includes(s));
   else if (quizSet === 'alpha') pool = ALL_SIGNS.filter(s => s.length === 1);
-  else pool = [...ALL_SIGNS];
+  else                          pool = [...ALL_SIGNS];
 
   if (pool.length === 0) { alert('No signs available for this set.'); return; }
 
-  // Build shuffled queue of `quizRounds` items (repeats allowed if pool < rounds)
-  quizQueue   = [];
+  quizQueue = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   while (quizQueue.length < quizRounds) {
     quizQueue.push(...shuffled.sort(() => Math.random() - 0.5));
   }
   quizQueue   = quizQueue.slice(0, quizRounds);
-
   quizIdx     = 0;
   quizCorrect = 0;
   quizTotal   = 0;
@@ -708,10 +746,7 @@ window.startQuiz = function() {
 };
 
 function showQuizSign() {
-  if (quizIdx >= quizQueue.length) {
-    endQuiz();
-    return;
-  }
+  if (quizIdx >= quizQueue.length) { endQuiz(); return; }
   const sign = quizQueue[quizIdx];
   document.getElementById('quiz-prompt').textContent = sign;
   document.getElementById('quiz-hint').textContent   =
@@ -720,18 +755,17 @@ function showQuizSign() {
   quizWaiting   = false;
   quizLastLabel = null;
   clearTimeout(quizHoldTimer);
-
   resetQuizResultCard();
 }
 
 function resetQuizResultCard() {
-  document.getElementById('quiz-result-card').className   = 'result-card no-hand';
-  document.getElementById('quiz-result-label').className  = 'result-label no-match';
+  document.getElementById('quiz-result-card').className    = 'result-card no-hand';
+  document.getElementById('quiz-result-label').className   = 'result-label no-match';
   document.getElementById('quiz-result-label').textContent = '–';
   document.getElementById('quiz-result-conf').textContent  = '0%';
   document.getElementById('quiz-result-conf').className    = 'result-conf low';
   document.getElementById('quiz-result-status').textContent = 'Show your hand';
-  document.getElementById('quiz-conf-bar').style.width     = '0%';
+  document.getElementById('quiz-conf-bar').style.width      = '0%';
 }
 
 function onQuizResult(label, confidence) {
@@ -743,15 +777,14 @@ function onQuizResult(label, confidence) {
   const target  = quizQueue[quizIdx];
   const matched = label === target && confidence >= MATCH_THRESHOLD;
 
-  // Update quiz result card
-  document.getElementById('quiz-result-card').className   = matched ? 'result-card matched' : 'result-card';
-  document.getElementById('quiz-result-label').className  = matched ? 'result-label' : 'result-label unmatched';
+  document.getElementById('quiz-result-card').className    = matched ? 'result-card matched' : 'result-card';
+  document.getElementById('quiz-result-label').className   = matched ? 'result-label' : 'result-label unmatched';
   document.getElementById('quiz-result-label').textContent = label;
   document.getElementById('quiz-result-conf').textContent  = confidence + '%';
   document.getElementById('quiz-result-conf').className    = 'result-conf ' + confClass(confidence);
   document.getElementById('quiz-result-status').textContent =
     matched ? '✅ Correct! Hold it…' : label !== target ? `Showing ${label}, need ${target}` : 'Hold steady…';
-  document.getElementById('quiz-conf-bar').style.width     = confidence + '%';
+  document.getElementById('quiz-conf-bar').style.width      = confidence + '%';
   document.getElementById('quiz-conf-bar').style.background = confBarColor(confidence);
 
   if (matched && label !== quizLastLabel) {
@@ -765,7 +798,7 @@ function onQuizResult(label, confidence) {
       appendQuizHistory(target, label, confidence, true);
       updateQuizScoreUI();
       document.getElementById('quiz-result-status').textContent = '✅ Accepted!';
-      document.getElementById('quiz-next-btn').style.display = 'inline-flex';
+      document.getElementById('quiz-next-btn').style.display    = 'inline-flex';
       quizIdx++;
       if (quizIdx >= quizQueue.length) setTimeout(endQuiz, 1200);
     }, QUIZ_HOLD_MS);
@@ -796,8 +829,8 @@ window.nextQuizSign = function() {
 function endQuiz() {
   quizActive = false;
   const pct  = quizTotal > 0 ? Math.round((quizCorrect / quizTotal) * 100) : 0;
-  document.getElementById('quiz-prompt').textContent    = '🏁 Done';
-  document.getElementById('quiz-hint').textContent      = `Final: ${quizCorrect}/${quizTotal} (${pct}%)`;
+  document.getElementById('quiz-prompt').textContent     = '🏁 Done';
+  document.getElementById('quiz-hint').textContent       = `Final: ${quizCorrect}/${quizTotal} (${pct}%)`;
   document.getElementById('quiz-next-btn').style.display = 'none';
 }
 
@@ -825,7 +858,7 @@ function appendQuizHistory(target, detected, confidence, correct) {
   while (body.children.length > 60) body.removeChild(body.lastChild);
 }
 
-// Keyboard shortcut: Space = next sign during quiz
+// Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (e.code === 'Space' && quizActive && quizWaiting) {
     e.preventDefault();
@@ -849,12 +882,11 @@ function onRawResult(landmarks, probs) {
 
   const lmsToShow = frozenLandmarks ?? landmarks;
 
-  // ── Live landmark table ──────────────────────────────────
   const lmTable = document.getElementById('raw-landmark-table');
   if (!lmsToShow) {
     lmTable.innerHTML = '<div class="empty-state">Show your hand to see raw landmark data</div>';
-  } else {
-    const rows = lmsToShow.map((pt, i) => {
+  } else if (!frozenLandmarks) {
+    lmTable.innerHTML = lmsToShow.map((pt, i) => {
       const x = pt.x.toFixed(4);
       const y = pt.y.toFixed(4);
       const z = pt.z.toFixed(4);
@@ -866,10 +898,8 @@ function onRawResult(landmarks, probs) {
                 <span>z: <span style="color:var(--amber)">${z}</span></span>
               </div>`;
     }).join('');
-    if (!frozenLandmarks) lmTable.innerHTML = rows; // live update only if not frozen
   }
 
-  // ── All class probabilities ──────────────────────────────
   const probsBody = document.getElementById('raw-probs-body');
   if (!probs || probs.length === 0) {
     probsBody.innerHTML = '<div class="empty-state">Show your hand</div>';
@@ -877,11 +907,11 @@ function onRawResult(landmarks, probs) {
   }
 
   const indexed = probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p);
-  probsBody.innerHTML = indexed.map(item => {
-    const sign = labelsMap[String(item.i)] ?? '?';
-    const pct  = (item.p * 100).toFixed(2);
-    const isTop = item === indexed[0];
-    const col  = isTop ? 'var(--green)' : 'var(--muted)';
+  probsBody.innerHTML = indexed.map((item, rank) => {
+    const sign  = labelsMap[String(item.i)] ?? '?';
+    const pct   = (item.p * 100).toFixed(2);
+    const isTop = rank === 0;
+    const col   = isTop ? 'var(--green)' : 'var(--muted)';
     return `<div style="display:flex;align-items:center;gap:8px;padding:5px 14px;
                         border-bottom:1px solid var(--border);">
               <span style="font-weight:700;width:36px;color:${col}">${sign}</span>
@@ -894,16 +924,15 @@ function onRawResult(landmarks, probs) {
 }
 
 window.freezeLandmarks = function() {
-  if (!currentLandmarks) { return; }
+  if (!currentLandmarks) return;
   frozenLandmarks = currentLandmarks.map(p => ({ ...p }));
 
   const info = document.getElementById('freeze-info');
   info.style.color = 'var(--green)';
   info.textContent = `Frozen at frame ${rawFrameCount}. Click Clear to resume live.`;
 
-  // Show frozen data in table immediately
   const lmTable = document.getElementById('raw-landmark-table');
-  const rows = frozenLandmarks.map((pt, i) => {
+  lmTable.innerHTML = frozenLandmarks.map((pt, i) => {
     const x = pt.x.toFixed(4);
     const y = pt.y.toFixed(4);
     const z = pt.z.toFixed(4);
@@ -915,7 +944,6 @@ window.freezeLandmarks = function() {
               <span>z: <span style="color:var(--amber)">${z}</span></span>
             </div>`;
   }).join('');
-  lmTable.innerHTML = rows;
 };
 
 window.clearFreeze = function() {

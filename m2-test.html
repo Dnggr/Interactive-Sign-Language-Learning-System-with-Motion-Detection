@@ -4,7 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>M2 — Model Accuracy Tester</title>
+
+<!-- FIX 1: @import MUST be the very first thing inside <style>.
+     Moving it here from the middle of the style block where browsers silently ignore it. -->
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
   /* ── DESIGN TOKENS ─────────────────────────────────────── */
   :root {
     --bg:         #0a0c10;
@@ -22,8 +27,6 @@
     --font-ui:    'Syne', 'Segoe UI', sans-serif;
     --radius:     8px;
   }
-
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -308,7 +311,7 @@
     color: var(--green);
   }
 
-  /* ── SIGN SELECTOR (static) ─────────────────────────────── */
+  /* ── SIGN SELECTOR ──────────────────────────────────────── */
   .sign-selector {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
@@ -327,6 +330,31 @@
     grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
     gap: 4px;
   }
+
+  /* FIX 2: JS creates buttons with class "sign-btn" but the original CSS only
+     had ".sign-chip". Added ".sign-btn" so the dynamically-created buttons
+     actually get styled and the .active state is visible. */
+  .sign-btn {
+    padding: 5px 4px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .sign-btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .sign-btn.active {
+    background: rgba(0,229,160,.12);
+    border-color: rgba(0,229,160,.5);
+    color: var(--green);
+  }
+
+  /* Keep .sign-chip for any other references */
   .sign-chip {
     padding: 5px 4px;
     text-align: center;
@@ -345,12 +373,6 @@
     background: rgba(0,229,160,.12);
     border-color: rgba(0,229,160,.5);
     color: var(--green);
-  }
-  .sign-chip.--any {
-    grid-column: 1 / -1;
-    font-size: 10px;
-    letter-spacing: .06em;
-    text-transform: uppercase;
   }
 
   /* ── QUIZ PANEL ─────────────────────────────────────────── */
@@ -610,6 +632,12 @@
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 </style>
+
+<!-- FIX 3: TF.js script tag must load BEFORE the module script so that
+     the global `tf` variable is available when m2-test.js (type="module") runs.
+     Placing it here in <head> ensures it is parsed and executed first.
+     Also removed the duplicate </head> tag that was here before. -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
 <body>
 
