@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M2 Debugger v12 — Static Capture (Path 3)</title>
+<title>M2 Debugger v13 — Static + Motion Capture (Path 3)</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -32,8 +32,9 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 /* Webcam */
 .webcam-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#000;
   border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-#webcam,#overlay,#webcam2,#overlay2,#webcam3,#overlay3{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-#overlay,#overlay2,#overlay3{z-index:2;pointer-events:none}
+#webcam,#overlay,#webcam2,#overlay2,#webcam3,#overlay3,#webcam4,#overlay4{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#overlay,#overlay2,#overlay3,#overlay4{z-index:2;pointer-events:none}
 
 .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
 .ctitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
@@ -130,13 +131,10 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .setting-row input[type=range]{flex:1;accent-color:var(--green)}
 .setting-val{color:var(--amber);font-weight:700;min-width:40px}
 
-/* ── TAB 3: STATIC CAPTURE ── */
-.capture-panel.active{display:flex;gap:12px;flex-wrap:wrap}
-
-/* Per-sign progress grid */
+/* ── TAB 3 & 4: CAPTURE PANELS ── */
 .sign-progress-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(68px,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
   gap:6px;
 }
 .sp-cell{
@@ -146,18 +144,28 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .sp-cell:hover{border-color:var(--green)}
 .sp-cell.active-sign{border-color:var(--green);background:#00e5a018}
 .sp-cell.done{border-color:#00e5a055}
-.sp-cell .sp-letter{font-size:18px;font-weight:900;color:var(--text);line-height:1}
-.sp-cell .sp-count{font-size:10px;color:var(--muted);margin-top:3px}
+.sp-cell .sp-letter{font-size:15px;font-weight:900;color:var(--text);line-height:1}
+.sp-cell .sp-count{font-size:9px;color:var(--muted);margin-top:3px}
 .sp-cell .sp-bar{height:3px;border-radius:99px;background:var(--border);margin-top:4px;overflow:hidden}
 .sp-cell .sp-fill{height:100%;border-radius:99px;background:var(--green);transition:width .2s}
 .sp-cell.done .sp-letter{color:var(--green)}
 .sp-cell.done .sp-count{color:var(--green)}
 
-/* Flash animation when capture succeeds */
+/* Delete button on each sign cell */
+.sp-del{
+  position:absolute;top:2px;right:3px;
+  font-size:8px;line-height:1;
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  padding:1px 2px;border-radius:2px;
+  transition:color .1s;
+  display:none;
+}
+.sp-cell:hover .sp-del{display:block}
+.sp-del:hover{color:var(--red)!important}
+
 @keyframes flashCapture{0%{background:#00e5a033}100%{background:#00e5a018}}
 .sp-cell.flash{animation:flashCapture .25s ease-out}
 
-/* Big capture button */
 .big-capture-btn{
   width:100%;padding:18px;font-family:inherit;font-size:16px;font-weight:900;
   letter-spacing:.05em;border-radius:8px;border:2px solid var(--green);
@@ -168,11 +176,16 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .big-capture-btn:active{background:#00e5a055;transform:scale(.98)}
 .big-capture-btn:disabled{opacity:.4;cursor:not-allowed}
 
-/* Keyboard hint badge */
+/* Motion record button states */
+.big-capture-btn.recording{
+  border-color:var(--red);background:#ff5f6d18;color:var(--red);
+  animation:recordPulse .6s infinite alternate;
+}
+@keyframes recordPulse{from{background:#ff5f6d18}to{background:#ff5f6d33}}
+
 .kbd{display:inline-block;padding:2px 6px;background:var(--surface2);border:1px solid var(--border);
   border-radius:4px;font-size:10px;color:var(--muted)}
 
-/* Capture feedback flash overlay */
 .capture-flash{
   position:fixed;inset:0;pointer-events:none;
   background:#00e5a0;opacity:0;z-index:9999;
@@ -180,7 +193,9 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 }
 .capture-flash.flash{opacity:.08}
 
-/* Total counter strip */
+/* Motion recording flash (red) */
+.capture-flash.rec-flash{background:#ff5f6d;opacity:.12}
+
 .total-strip{
   display:flex;align-items:center;justify-content:space-between;
   background:var(--surface2);border:1px solid var(--border);
@@ -189,14 +204,20 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 .total-big{font-size:28px;font-weight:900;color:var(--green)}
 .total-goal{font-size:11px;color:var(--muted);margin-top:2px}
 
-/* Recent captures mini log */
-.mini-log{height:160px;overflow-y:auto;font-size:10px;line-height:1.9;
+.mini-log{height:140px;overflow-y:auto;font-size:10px;line-height:1.9;
   background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px}
 .mini-log::-webkit-scrollbar{width:3px}
 .mini-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 .ml-entry{color:var(--muted);display:flex;gap:8px}
 .ml-sign-badge{color:var(--green);font-weight:900;min-width:28px}
 .ml-ts{color:#2a3544;font-size:9px}
+
+/* Motion progress bar */
+.seq-bar-wrap{width:100%;height:10px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:8px}
+.seq-bar{height:100%;border-radius:99px;background:var(--red);transition:width .05s}
+
+/* Count table two-column layout */
+.count-table-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
 </style>
 </head>
 <body>
@@ -205,8 +226,8 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
 <div class="capture-flash" id="capture-flash"></div>
 
 <div style="text-align:center">
-  <h1>🔬 M2 Debugger v12 — Static Capture (Path 3)</h1>
-  <p class="sub">Tab 1: live classifier · Tab 2: raw landmark inspector · Tab 3: static data capture (A–Z + ILY)</p>
+  <h1>🔬 M2 Debugger v13 — Static + Motion Capture (Path 3)</h1>
+  <p class="sub">Tab 1: live classifier · Tab 2: raw landmark inspector · Tab 3: static capture (A–Z + ILY) · Tab 4: motion capture (words/phrases)</p>
   <p class="sub" id="hand-count-display" style="color:var(--green);margin-top:2px">Waiting for hands…</p>
 </div>
 
@@ -217,6 +238,7 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
   <button class="tab-btn active" onclick="switchTab('classifier')">🤖 Tab 1 — Live Classifier</button>
   <button class="tab-btn"        onclick="switchTab('rawdebug')">🔩 Tab 2 — Raw Debug</button>
   <button class="tab-btn"        onclick="switchTab('capture')">📸 Tab 3 — Static Capture</button>
+  <button class="tab-btn"        onclick="switchTab('motion')">🎬 Tab 4 — Motion Capture</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
@@ -323,7 +345,7 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     </div>
 
     <div class="card">
-      <div class="ctitle">Computed tiebreakers — synced to classifier v11</div>
+      <div class="ctitle">Computed tiebreakers</div>
       <div class="tb-grid" id="tb-grid"></div>
     </div>
   </div>
@@ -334,14 +356,7 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       1. Select a sign button above.<br>
       2. Hold that sign clearly in frame.<br>
       3. Click <b>📸 Capture snapshot</b>.<br>
-      4. Do this for A, C, S, T, N, E, M.<br><br>
-      The log shows you the <b>exact tiebreaker values</b> for your real hand.<br><br>
-      <b>v11 FIXES in Tab 2:</b><br>
-      • handScale = WRIST→MIDDLE_TIP (matches classifier)<br>
-      • thumbSideOfFist uses correct landmarks (CMC+MCP, not PIP+MCP)<br>
-      • thumbWrapped uses normalized distances<br>
-      • tipsClose uses normalized formula (spread/handScale &lt; 0.38)<br>
-      • thumbNorm column now shown
+      4. The log shows exact tiebreaker values for your real hand.
     </div>
 
     <button class="btn-capture" id="capture-btn">📸 Capture snapshot for [A]</button>
@@ -366,7 +381,6 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       <canvas id="overlay3"></canvas>
     </div>
 
-    <!-- Currently selected sign indicator -->
     <div style="text-align:center;padding:8px 0">
       <div style="font-size:11px;color:var(--muted)">Currently capturing</div>
       <div id="active-sign-display" style="font-size:56px;font-weight:900;color:var(--green);
@@ -376,12 +390,10 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
       </div>
     </div>
 
-    <!-- BIG CAPTURE BUTTON -->
     <button class="big-capture-btn" id="btn-static-capture" onclick="captureStatic()">
       📸 &nbsp;CAPTURE &nbsp;<span class="kbd">SPACE</span>
     </button>
 
-    <!-- Total counter -->
     <div class="total-strip">
       <div>
         <div class="total-big" id="total-count">0</div>
@@ -400,14 +412,13 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
     <!-- Export / clear -->
     <div style="display:flex;gap:8px">
       <button class="btn-capture" style="flex:2" onclick="exportStaticJSON()">
-        ⬇ Export static_data.json
+        ⬇ Export data/static_data.json
       </button>
       <button class="btn-capture btn-clear" style="flex:1" onclick="clearStaticData()">
         🗑 Clear all
       </button>
     </div>
 
-    <!-- Recent captures mini log -->
     <div class="card">
       <div class="ctitle">Recent captures</div>
       <div class="mini-log" id="mini-log">No captures yet — show your hand and press Space…</div>
@@ -428,25 +439,142 @@ p.sub{font-size:11px;color:var(--muted);margin-top:4px}
          &nbsp;• Don't always hold the same position<br><br>
       <b>J and Z are motion signs</b> — skip them here.<br>
       <b>ILY</b> = I Love You (thumb + index + pinky).<br><br>
-      After capturing: click <b>Export static_data.json</b>.<br>
-      All 4 team members export their own file, then merge.
+      After capturing: click <b>Export</b>. Save the file into the<br>
+      <b>data/</b> folder of your repo before committing.<br><br>
+      <b>🗑 Delete last N</b> button appears on each sign cell when<br>
+      you hover it — use it to remove accidental over-captures.
     </div>
 
-    <!-- Per-sign progress grid -->
     <div class="card">
-      <div class="ctitle">Sign progress — click to select</div>
+      <div class="ctitle">Sign progress — click to select &nbsp;|&nbsp; hover → delete button</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
         Green border = selected &nbsp;|&nbsp; Bar fills toward 150 target
       </div>
       <div class="sign-progress-grid" id="sign-progress-grid"></div>
     </div>
 
-    <!-- Per-sign counts table -->
     <div class="card">
       <div class="ctitle">Count per sign</div>
-      <div id="count-table" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;font-size:11px"></div>
+      <div id="count-table" class="count-table-grid"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 4 — MOTION / SEQUENCE CAPTURE (PATH 3)               -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-motion">
+
+  <div class="col" style="flex:2;min-width:340px">
+    <div class="webcam-wrap">
+      <video id="webcam4" autoplay playsinline muted></video>
+      <canvas id="overlay4"></canvas>
+    </div>
+
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:11px;color:var(--muted)">Currently capturing motion for</div>
+      <div id="active-motion-sign-display" style="font-size:32px;font-weight:900;color:var(--purple);
+           line-height:1.2;letter-spacing:.03em">HELLO</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        Click a word in the grid → then record
+      </div>
+    </div>
+
+    <!-- Recording progress bar -->
+    <div id="seq-progress-wrap" style="display:none">
+      <div style="font-size:11px;color:var(--red);text-align:center;margin-bottom:4px">
+        🔴 Recording… <span id="seq-frame-count">0</span> / <span id="seq-target-frames">30</span> frames
+      </div>
+      <div class="seq-bar-wrap"><div class="seq-bar" id="seq-bar" style="width:0%"></div></div>
+    </div>
+
+    <!-- BIG RECORD BUTTON -->
+    <button class="big-capture-btn" id="btn-motion-record" onclick="recordMotion()">
+      🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>
+    </button>
+
+    <!-- Totals strip -->
+    <div class="total-strip">
+      <div>
+        <div class="total-big" id="motion-total-count">0</div>
+        <div class="total-goal">total sequences</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--amber);font-weight:700" id="active-motion-count-strip">
+          HELLO: 0 / 150
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">
+          Goal: 150 sequences × words = training data
+        </div>
+      </div>
+    </div>
+
+    <!-- Export / clear -->
+    <div style="display:flex;gap:8px">
+      <button class="btn-capture" style="flex:2" onclick="exportMotionJSON()">
+        ⬇ Export data/sequence_data.json
+      </button>
+      <button class="btn-capture btn-clear" style="flex:1" onclick="clearMotionData()">
+        🗑 Clear all
+      </button>
+    </div>
+
+    <!-- Frame length setting -->
+    <div class="card">
+      <div class="ctitle">Sequence settings</div>
+      <div class="setting-row">
+        <span>Frames per sequence</span>
+        <input type="range" id="frames-slider" min="15" max="60" value="30"
+               oninput="updateFrameTarget(this.value)">
+        <span class="setting-val" id="frames-val">30</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">
+        30 frames ≈ 1s of motion at 30fps. Use 30 unless signs are very long.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Recent sequences</div>
+      <div class="mini-log" id="motion-mini-log">No sequences yet — press R to record…</div>
+    </div>
+  </div>
+
+  <!-- Right: word grid + instructions -->
+  <div class="col" style="flex:1.4;min-width:280px">
+
+    <div class="instr">
+      <b>HOW TO RECORD A MOTION SEQUENCE:</b><br><br>
+      1. Click a word in the grid to select it.<br>
+      2. Rest your hand <b>below frame</b> or still.<br>
+      3. Press <b>R</b> (or the Record button).<br>
+      4. Immediately perform the sign naturally.<br>
+      5. Hold still at the end — recording stops automatically.<br><br>
+      One press = one sequence = 30 consecutive frames.<br>
+      Aim for <b>150 sequences per word</b>.<br>
+      Each recording takes ~1–3 seconds.<br><br>
+      <b>Variation tips:</b><br>
+         &nbsp;• Vary speed (slow, normal, fast)<br>
+         &nbsp;• Vary hand position (left/right/closer/far)<br>
+         &nbsp;• Don't start from the same position every time<br><br>
+      Export saves to <b>data/sequence_data.json</b> — put that<br>
+      file in your repo's <code>data/</code> folder.<br><br>
+      <b>🗑 Delete button</b> on each word cell (hover to see it)<br>
+      removes the last N sequences for that word only.
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Word progress — click to select &nbsp;|&nbsp; hover → delete</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Purple border = selected &nbsp;|&nbsp; Bar fills toward 150 target
+      </div>
+      <div class="sign-progress-grid" id="motion-progress-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle">Count per word</div>
+      <div id="motion-count-table" class="count-table-grid"></div>
+    </div>
   </div>
 </div>
 
@@ -477,14 +605,23 @@ const KEY_LM=[WRIST,THUMB_CMC,THUMB_MCP,THUMB_IP,THUMB_TIP,
 
 const SIGNS=['A','E','M','N','S','T','C','O','B','D','F','G','H','I','K','L','P','Q','R','U','V','W','X','Y'];
 
-// ── STATIC CAPTURE SIGNS (Path 3) ──
-// J and Z omitted — motion signs, captured separately
+// ── STATIC CAPTURE SIGNS (Path 3) — J and Z omitted (motion signs) ──
 const STATIC_SIGNS = [
   'A','B','C','D','E','F','G','H','I','K',
   'L','M','N','O','P','Q','R','S','T','U',
   'V','W','X','Y','ILY'
 ];
-const CAPTURE_TARGET = 150;  // target captures per sign
+const STATIC_TARGET = 150;
+
+// ── MOTION CAPTURE SIGNS — words/phrases with distinct motion paths ──
+const MOTION_SIGNS = [
+  'J','Z',
+  'HELLO','THANK YOU','PLEASE','SORRY','YES','NO',
+  'HELP','WATER','FOOD','MORE','STOP',
+  'GOOD','BAD','MY NAME IS','HOW ARE YOU'
+];
+const MOTION_TARGET = 150;
+let SEQ_FRAMES = 30; // how many frames per sequence (adjustable)
 
 // ── State ──
 let handLandmarker=null, lastVideoTime=-1, lastLM=null;
@@ -498,13 +635,21 @@ let detLog=[];
 
 // ── Static capture state ──
 let activeStaticSign = 'A';
-let staticCaptures   = [];   // Array of { label, landmarks: [63 numbers] }
-let recentLog        = [];   // For mini-log display
+let staticCaptures   = [];   // Array of { label, landmarks:[63 numbers] }
+let recentLog        = [];
+
+// ── Motion capture state ──
+let activeMotionSign  = 'HELLO';
+let motionCaptures    = [];  // Array of { label, sequence:[ [63 numbers], ... ] }
+let motionRecentLog   = [];
+let isRecording       = false;
+let recordBuffer      = [];  // frames being collected right now
 
 // ── Tab switching ──
 window.switchTab=function(name){
+  const tabs=['classifier','rawdebug','capture','motion'];
   document.querySelectorAll('.tab-btn').forEach((b,i)=>{
-    b.classList.toggle('active', ['classifier','rawdebug','capture'][i]===name);
+    b.classList.toggle('active', tabs[i]===name);
   });
   document.querySelectorAll('.tab-panel').forEach(p=>{
     p.classList.toggle('active',p.id==='panel-'+name);
@@ -520,19 +665,17 @@ async function init(){
     const v1=document.getElementById('webcam');
     const v2=document.getElementById('webcam2');
     const v3=document.getElementById('webcam3');
-    v1.srcObject=stream;
-    v2.srcObject=stream;
-    v3.srcObject=stream;
+    const v4=document.getElementById('webcam4');
+    [v1,v2,v3,v4].forEach(v=>{ v.srcObject=stream; });
 
     await new Promise(r=>{v1.onloadedmetadata=()=>v1.play().then(r);});
-    v2.play();
-    v3.play();
+    [v2,v3,v4].forEach(v=>v.play());
 
     const c1=document.getElementById('overlay');
     const c2=document.getElementById('overlay2');
     const c3=document.getElementById('overlay3');
-    c1.width=c2.width=c3.width=v1.videoWidth;
-    c1.height=c2.height=c3.height=v1.videoHeight;
+    const c4=document.getElementById('overlay4');
+    [c1,c2,c3,c4].forEach(c=>{c.width=v1.videoWidth;c.height=v1.videoHeight;});
 
     setStatus('Loading HandLandmarker model…','');
     const vis=await FilesetResolver.forVisionTasks(
@@ -550,6 +693,7 @@ async function init(){
     buildSignGrid();
     buildSignButtons();
     buildSignProgressGrid();
+    buildMotionProgressGrid();
     requestAnimationFrame(loop);
   }catch(e){
     setStatus('❌ '+e.message,'err');
@@ -583,31 +727,37 @@ function loop(){
       const c1=document.getElementById('overlay');
       const c2=document.getElementById('overlay2');
       const c3=document.getElementById('overlay3');
-      const ctx1=c1.getContext('2d'); ctx1.clearRect(0,0,c1.width,c1.height);
-      const ctx2=c2.getContext('2d'); ctx2.clearRect(0,0,c2.width,c2.height);
-      const ctx3=c3.getContext('2d'); ctx3.clearRect(0,0,c3.width,c3.height);
+      const c4=document.getElementById('overlay4');
+      [c1,c2,c3,c4].forEach(c=>{
+        const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+      });
       r.landmarks.forEach(lm=>{
-        drawSkeletonOnCtx(ctx1,lm,c1.width,c1.height);
-        drawSkeletonOnCtx(ctx2,lm,c2.width,c2.height);
-        drawSkeletonOnCtx(ctx3,lm,c3.width,c3.height);
+        [c1,c2,c3,c4].forEach(c=>drawSkeletonOnCtx(c.getContext('2d'),lm,c.width,c.height));
       });
 
       lastLM = pickDominantHand(r.landmarks, r.handedness);
-
-      // Store for static capture button (Tab 3)
       window._currentLandmarks = lastLM;
 
       updateClassifierPanel(lastLM);
       updateRawPanel(lastLM);
+
+      // Feed motion recording buffer
+      if(isRecording && lastLM){
+        const flat = lastLM.flatMap(p=>[p.x,p.y,p.z]);
+        recordBuffer.push(flat);
+        updateRecordingUI();
+        if(recordBuffer.length >= SEQ_FRAMES){
+          finishRecording();
+        }
+      }
 
       const hc=document.getElementById('hand-count-display');
       if(hc) hc.textContent=r.landmarks.length+' hand'+(r.landmarks.length>1?'s':'')+' detected';
     } else {
       lastLM=null;
       window._currentLandmarks = null;
-      clearCanvas(document.getElementById('overlay'));
-      clearCanvas(document.getElementById('overlay2'));
-      clearCanvas(document.getElementById('overlay3'));
+      ['overlay','overlay2','overlay3','overlay4'].forEach(id=>
+        clearCanvas(document.getElementById(id)));
       resetClassifierDisplay();
       const hc=document.getElementById('hand-count-display');
       if(hc) hc.textContent='No hands detected';
@@ -837,7 +987,6 @@ function updateRawPanel(lm){
   const rows=[
     ['thumbState (0/1/2)',vals.thumbV6,'num'],
     ['sideOfFist ✅ (A tb)',vals.sideV6,'bool'],
-    ['sideOfFist X (extra)',vals.sideX,'bool'],
     ['thumbWrapped ✅ (S tb)',vals.wrappedV6,'bool'],
     ['thumbBetween (T tb)',vals.between,'bool'],
     ['belowPIP (Q/G/K tb)',vals.belowPIP,'bool'],
@@ -847,13 +996,10 @@ function updateRawPanel(lm){
     ['indexVertical (D/L tb)',vals.indexVertical,'bool'],
     ['tipΔCMC',vals.tipVsCMC,'delta'],
     ['tipΔIdxPIP',vals.tipVsIdxPIP,'delta'],
-    ['tipΔIdxMCP',vals.tipVsIdxMCP,'delta'],
-    ['thumb→idxTip (raw)',vals.thumbToIdxTip,'dist'],
     ['thumbNorm ✅ (fist tb)',vals.thumbToIdxTipNorm,'dist'],
     ['iMSpreadNorm (U/V tb)',vals.iMSpreadNormStr,'dist'],
     ['spreadNorm (C/O tb)',vals.spreadNorm,'dist'],
     ['handScale (WRIST→TIP)',vals.handScale,'dist'],
-    ['spread (raw)',vals.spread,'dist'],
   ];
   document.getElementById('tb-grid').innerHTML=rows.map(([n,v,t])=>{
     let cls='tb-val n',display=v;
@@ -880,13 +1026,9 @@ document.getElementById('capture-btn').onclick=()=>{
   const entry=document.createElement('div');
   entry.className='cl-entry';
   entry.innerHTML=`<span class="cl-sign">${ts} [${selectedSign}]</span><span style="color:var(--text)">
-  fs3=[${fs.join(',')}] fsBin=[${fsBin.join(',')}]
-  sideOfFist=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'}
-  belowPIP=${vals.belowPIP?'T':'F'} tipsClose=${vals.tipsClose?'T':'F'} curvedIn=${vals.curvedV6?'T':'F'}
-  idxVert=${vals.indexVertical?'T':'F'} xed=${vals.fingersCrossed?'T':'F'}
-  thumbNorm=${vals.thumbToIdxTipNorm} iMSprN=${vals.iMSpreadNormStr} sprN=${vals.spreadNorm}
-  hscale=${vals.handScale} spread=${vals.spread}
-  tipΔCMC=${vals.tipVsCMC} tipΔIdxPIP=${vals.tipVsIdxPIP}</span>`;
+  fs=[${fs.join(',')}] bin=[${fsBin.join(',')}]
+  side=${vals.sideV6?'T':'F'} wrap=${vals.wrappedV6?'T':'F'} between=${vals.between?'T':'F'}
+  tipsClose=${vals.tipsClose?'T':'F'} thumbNorm=${vals.thumbToIdxTipNorm}</span>`;
   log.appendChild(entry);
   log.scrollTop=log.scrollHeight;
 };
@@ -906,15 +1048,31 @@ function buildSignProgressGrid(){
     const cell = document.createElement('div');
     cell.className = 'sp-cell' + (sign === activeStaticSign ? ' active-sign' : '');
     cell.id = 'sp-cell-' + sign;
-    cell.onclick = () => setActiveStaticSign(sign);
+    cell.onclick = (e) => {
+      // Don't activate when clicking delete btn
+      if(e.target.classList.contains('sp-del')) return;
+      setActiveStaticSign(sign);
+    };
+
+    // Delete button — deletes last 1 capture for this sign
+    const delBtn = document.createElement('button');
+    delBtn.className = 'sp-del';
+    delBtn.title = 'Delete last capture for ' + sign;
+    delBtn.textContent = '✕';
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteLastStaticCapture(sign);
+    };
+
     cell.innerHTML = `
       <div class="sp-letter">${sign}</div>
-      <div class="sp-count" id="sp-count-${sign}">0 / ${CAPTURE_TARGET}</div>
+      <div class="sp-count" id="sp-count-${sign}">0 / ${STATIC_TARGET}</div>
       <div class="sp-bar"><div class="sp-fill" id="sp-fill-${sign}" style="width:0%"></div></div>
     `;
+    cell.appendChild(delBtn);
     grid.appendChild(cell);
   });
-  updateCountTable();
+  updateStaticCountTable();
 }
 
 function setActiveStaticSign(sign){
@@ -933,7 +1091,7 @@ function countForSign(sign){
 function updateActiveStripCount(){
   const n = countForSign(activeStaticSign);
   document.getElementById('active-sign-count-strip').textContent =
-    `${activeStaticSign}: ${n} / ${CAPTURE_TARGET}`;
+    `${activeStaticSign}: ${n} / ${STATIC_TARGET}`;
 }
 
 function updateSignCell(sign){
@@ -941,19 +1099,19 @@ function updateSignCell(sign){
   const countEl = document.getElementById('sp-count-' + sign);
   const fillEl  = document.getElementById('sp-fill-'  + sign);
   const cell    = document.getElementById('sp-cell-'  + sign);
-  if(countEl) countEl.textContent = `${n} / ${CAPTURE_TARGET}`;
-  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / CAPTURE_TARGET) * 100)) + '%';
+  if(countEl) countEl.textContent = `${n} / ${STATIC_TARGET}`;
+  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / STATIC_TARGET) * 100)) + '%';
   if(cell){
-    if(n >= CAPTURE_TARGET) cell.classList.add('done');
+    if(n >= STATIC_TARGET) cell.classList.add('done');
     else cell.classList.remove('done');
   }
 }
 
-function updateCountTable(){
+function updateStaticCountTable(){
   const tbl = document.getElementById('count-table');
   tbl.innerHTML = STATIC_SIGNS.map(sign => {
     const n = countForSign(sign);
-    const done = n >= CAPTURE_TARGET;
+    const done = n >= STATIC_TARGET;
     const color = done ? 'var(--green)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
     return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:11px">
       <span style="color:${done ? 'var(--green)' : 'var(--muted)'}">${sign}</span>
@@ -964,10 +1122,10 @@ function updateCountTable(){
 
 function flashScreen(){
   const el = document.getElementById('capture-flash');
-  el.classList.remove('flash');
-  void el.offsetWidth; // reflow to restart animation
+  el.className = 'capture-flash';
+  void el.offsetWidth;
   el.classList.add('flash');
-  setTimeout(() => el.classList.remove('flash'), 120);
+  setTimeout(() => el.className = 'capture-flash', 120);
 }
 
 function flashSignCell(sign){
@@ -998,7 +1156,6 @@ function addToMiniLog(sign, total){
 window.captureStatic = function(){
   const lm = window._currentLandmarks;
   if(!lm || lm.length !== 21){
-    // Brief visual error feedback
     const btn = document.getElementById('btn-static-capture');
     const orig = btn.textContent;
     btn.textContent = '⚠️ No hand detected!';
@@ -1012,30 +1169,71 @@ window.captureStatic = function(){
     return;
   }
 
-  // Flatten 21 landmarks → 63 numbers [x0,y0,z0, x1,y1,z1, ...]
   const flat = lm.flatMap(p => [p.x, p.y, p.z]);
   staticCaptures.push({ label: activeStaticSign, landmarks: flat });
 
   const total = staticCaptures.length;
-
-  // Update UI
   document.getElementById('total-count').textContent = total;
   updateSignCell(activeStaticSign);
   updateActiveStripCount();
-  updateCountTable();
+  updateStaticCountTable();
   flashScreen();
   flashSignCell(activeStaticSign);
   addToMiniLog(activeStaticSign, total);
 
   // Auto-advance to next sign if target reached
   const n = countForSign(activeStaticSign);
-  if(n === CAPTURE_TARGET){
+  if(n === STATIC_TARGET){
     const idx = STATIC_SIGNS.indexOf(activeStaticSign);
     if(idx < STATIC_SIGNS.length - 1){
       setTimeout(() => setActiveStaticSign(STATIC_SIGNS[idx + 1]), 400);
     }
   }
 };
+
+// ── DELETE last N captures for a given sign ──
+// Shows a prompt so user can type how many to delete
+function deleteLastStaticCapture(sign){
+  const current = countForSign(sign);
+  if(current === 0){ alert(`No captures for ${sign} to delete.`); return; }
+
+  const input = prompt(
+    `Delete captures for "${sign}".\nCurrently: ${current}\nHow many to delete? (1–${current})`,
+    '1'
+  );
+  if(input === null) return; // cancelled
+  const n = parseInt(input);
+  if(isNaN(n) || n < 1 || n > current){
+    alert(`Please enter a number between 1 and ${current}.`);
+    return;
+  }
+
+  // Remove the LAST n entries for this sign
+  let removed = 0;
+  for(let i = staticCaptures.length - 1; i >= 0 && removed < n; i--){
+    if(staticCaptures[i].label === sign){
+      staticCaptures.splice(i, 1);
+      removed++;
+    }
+  }
+
+  document.getElementById('total-count').textContent = staticCaptures.length;
+  updateSignCell(sign);
+  updateActiveStripCount();
+  updateStaticCountTable();
+
+  // Update mini-log to show deletion
+  recentLog.unshift({ sign: `−${n}×${sign}`, ts: 'deleted', total: staticCaptures.length });
+  if(recentLog.length > 40) recentLog.pop();
+  const log = document.getElementById('mini-log');
+  log.innerHTML = recentLog.map(e =>
+    `<div class="ml-entry">
+      <span class="ml-sign-badge" style="color:var(--red)">${e.sign}</span>
+      <span style="color:var(--muted)">${e.total}</span>
+      <span class="ml-ts">${e.ts}</span>
+    </div>`
+  ).join('');
+}
 
 window.exportStaticJSON = function(){
   if(staticCaptures.length === 0){
@@ -1045,7 +1243,7 @@ window.exportStaticJSON = function(){
   const blob = new Blob([JSON.stringify(staticCaptures, null, 2)], { type: 'application/json' });
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);
-  a.download = 'static_data.json';
+  a.download = 'static_data.json';   // save as static_data.json → put into data/ folder in repo
   a.click();
   URL.revokeObjectURL(a.href);
 };
@@ -1058,12 +1256,12 @@ window.clearStaticData = function(){
   document.getElementById('mini-log').innerHTML = 'No captures yet — show your hand and press Space…';
   STATIC_SIGNS.forEach(s => updateSignCell(s));
   updateActiveStripCount();
-  updateCountTable();
+  updateStaticCountTable();
 };
 
 // ── Keyboard shortcuts ──
 window.addEventListener('keydown', e => {
-  // Space → capture (Tab 3 only, don't fire when typing in a textarea)
+  // Space → static capture (Tab 3 only)
   if(e.code === 'Space' && document.activeElement.tagName !== 'TEXTAREA'){
     const panel = document.getElementById('panel-capture');
     if(panel.classList.contains('active')){
@@ -1071,7 +1269,15 @@ window.addEventListener('keydown', e => {
       window.captureStatic();
     }
   }
-  // Arrow keys to cycle through signs in Tab 3
+  // R → motion record (Tab 4 only)
+  if(e.code === 'KeyR' && document.activeElement.tagName !== 'TEXTAREA'){
+    const panel = document.getElementById('panel-motion');
+    if(panel.classList.contains('active')){
+      e.preventDefault();
+      recordMotion();
+    }
+  }
+  // Arrow keys to cycle signs in Tab 3
   if(document.getElementById('panel-capture').classList.contains('active')){
     if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
       const idx = STATIC_SIGNS.indexOf(activeStaticSign);
@@ -1082,7 +1288,258 @@ window.addEventListener('keydown', e => {
       if(idx > 0) setActiveStaticSign(STATIC_SIGNS[idx - 1]);
     }
   }
+  // Arrow keys to cycle words in Tab 4
+  if(document.getElementById('panel-motion').classList.contains('active')){
+    if(e.code === 'ArrowRight' || e.code === 'ArrowDown'){
+      const idx = MOTION_SIGNS.indexOf(activeMotionSign);
+      if(idx < MOTION_SIGNS.length - 1) setActiveMotionSign(MOTION_SIGNS[idx + 1]);
+    }
+    if(e.code === 'ArrowLeft' || e.code === 'ArrowUp'){
+      const idx = MOTION_SIGNS.indexOf(activeMotionSign);
+      if(idx > 0) setActiveMotionSign(MOTION_SIGNS[idx - 1]);
+    }
+  }
 });
+
+// ══════════════════════════════════════════════════════════
+// TAB 4 — MOTION / SEQUENCE CAPTURE
+// ══════════════════════════════════════════════════════════
+
+function buildMotionProgressGrid(){
+  const grid = document.getElementById('motion-progress-grid');
+  grid.innerHTML = '';
+  MOTION_SIGNS.forEach(sign => {
+    const cell = document.createElement('div');
+    cell.className = 'sp-cell' + (sign === activeMotionSign ? ' active-sign' : '');
+    cell.id = 'mp-cell-' + sign;
+    // Override active-sign color to purple for motion tab
+    if(sign === activeMotionSign) cell.style.borderColor = 'var(--purple)';
+    cell.onclick = (e) => {
+      if(e.target.classList.contains('sp-del')) return;
+      setActiveMotionSign(sign);
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'sp-del';
+    delBtn.title = 'Delete last sequence(s) for ' + sign;
+    delBtn.textContent = '✕';
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteLastMotionCapture(sign);
+    };
+
+    cell.innerHTML = `
+      <div class="sp-letter" style="font-size:10px;word-break:break-word;line-height:1.2">${sign}</div>
+      <div class="sp-count" id="mp-count-${sign}">0 / ${MOTION_TARGET}</div>
+      <div class="sp-bar"><div class="sp-fill" id="mp-fill-${sign}" style="width:0%;background:var(--purple)"></div></div>
+    `;
+    cell.appendChild(delBtn);
+    grid.appendChild(cell);
+  });
+  updateMotionCountTable();
+}
+
+function setActiveMotionSign(sign){
+  activeMotionSign = sign;
+  document.querySelectorAll('#motion-progress-grid .sp-cell').forEach(c => {
+    c.classList.remove('active-sign');
+    c.style.borderColor = '';
+  });
+  const cell = document.getElementById('mp-cell-' + sign);
+  if(cell){ cell.classList.add('active-sign'); cell.style.borderColor = 'var(--purple)'; }
+  document.getElementById('active-motion-sign-display').textContent = sign;
+  updateActiveMotionStripCount();
+}
+
+function countForMotionSign(sign){
+  return motionCaptures.filter(c => c.label === sign).length;
+}
+
+function updateActiveMotionStripCount(){
+  const n = countForMotionSign(activeMotionSign);
+  document.getElementById('active-motion-count-strip').textContent =
+    `${activeMotionSign}: ${n} / ${MOTION_TARGET}`;
+}
+
+function updateMotionCell(sign){
+  const n = countForMotionSign(sign);
+  const countEl = document.getElementById('mp-count-' + sign);
+  const fillEl  = document.getElementById('mp-fill-'  + sign);
+  const cell    = document.getElementById('mp-cell-'  + sign);
+  if(countEl) countEl.textContent = `${n} / ${MOTION_TARGET}`;
+  if(fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / MOTION_TARGET) * 100)) + '%';
+  if(cell){
+    if(n >= MOTION_TARGET) cell.classList.add('done');
+    else cell.classList.remove('done');
+  }
+}
+
+function updateMotionCountTable(){
+  const tbl = document.getElementById('motion-count-table');
+  tbl.innerHTML = MOTION_SIGNS.map(sign => {
+    const n = countForMotionSign(sign);
+    const done = n >= MOTION_TARGET;
+    const color = done ? 'var(--purple)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
+    return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #1f273333;font-size:10px">
+      <span style="color:${done ? 'var(--purple)' : 'var(--muted)'}">${sign}</span>
+      <span style="color:${color};font-weight:700">${n}</span>
+    </div>`;
+  }).join('');
+}
+
+function updateRecordingUI(){
+  const n = recordBuffer.length;
+  const pct = Math.min(100, Math.round((n / SEQ_FRAMES) * 100));
+  document.getElementById('seq-frame-count').textContent = n;
+  document.getElementById('seq-bar').style.width = pct + '%';
+  document.getElementById('seq-progress-wrap').style.display = 'block';
+}
+
+function finishRecording(){
+  isRecording = false;
+  const sequence = [...recordBuffer];
+  recordBuffer = [];
+
+  // Save
+  motionCaptures.push({ label: activeMotionSign, sequence });
+
+  const total = motionCaptures.length;
+  document.getElementById('motion-total-count').textContent = total;
+  updateMotionCell(activeMotionSign);
+  updateActiveMotionStripCount();
+  updateMotionCountTable();
+
+  // Reset recording UI
+  const btn = document.getElementById('btn-motion-record');
+  btn.classList.remove('recording');
+  btn.textContent = '🎬  RECORD  ';
+  btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
+  document.getElementById('seq-progress-wrap').style.display = 'none';
+  document.getElementById('seq-bar').style.width = '0%';
+
+  // Flash green
+  flashScreen();
+
+  // Add to mini log
+  const t = new Date();
+  const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+  motionRecentLog.unshift({ sign: activeMotionSign, ts, total });
+  if(motionRecentLog.length > 40) motionRecentLog.pop();
+  const log = document.getElementById('motion-mini-log');
+  log.innerHTML = motionRecentLog.map(e =>
+    `<div class="ml-entry">
+      <span class="ml-sign-badge" style="color:var(--purple)">${e.sign}</span>
+      <span style="color:var(--muted)">#${e.total}</span>
+      <span class="ml-ts">${e.ts}</span>
+    </div>`
+  ).join('');
+
+  // Auto-advance to next word if target reached
+  const n = countForMotionSign(activeMotionSign);
+  if(n === MOTION_TARGET){
+    const idx = MOTION_SIGNS.indexOf(activeMotionSign);
+    if(idx < MOTION_SIGNS.length - 1){
+      setTimeout(() => setActiveMotionSign(MOTION_SIGNS[idx + 1]), 500);
+    }
+  }
+}
+
+window.recordMotion = function(){
+  if(isRecording){
+    // Manual cancel
+    isRecording = false;
+    recordBuffer = [];
+    const btn = document.getElementById('btn-motion-record');
+    btn.classList.remove('recording');
+    btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
+    document.getElementById('seq-progress-wrap').style.display = 'none';
+    document.getElementById('seq-bar').style.width = '0%';
+    return;
+  }
+
+  // Start recording
+  isRecording  = true;
+  recordBuffer = [];
+  const btn = document.getElementById('btn-motion-record');
+  btn.classList.add('recording');
+  btn.innerHTML = '⏹ &nbsp;STOP RECORDING &nbsp;<span class="kbd">R</span>';
+
+  // Initialize frame counter UI
+  document.getElementById('seq-target-frames').textContent = SEQ_FRAMES;
+  document.getElementById('seq-frame-count').textContent = '0';
+  document.getElementById('seq-bar').style.width = '0%';
+  document.getElementById('seq-progress-wrap').style.display = 'block';
+};
+
+function deleteLastMotionCapture(sign){
+  const current = countForMotionSign(sign);
+  if(current === 0){ alert(`No sequences for "${sign}" to delete.`); return; }
+
+  const input = prompt(
+    `Delete sequences for "${sign}".\nCurrently: ${current}\nHow many to delete? (1–${current})`,
+    '1'
+  );
+  if(input === null) return;
+  const n = parseInt(input);
+  if(isNaN(n) || n < 1 || n > current){
+    alert(`Please enter a number between 1 and ${current}.`);
+    return;
+  }
+
+  let removed = 0;
+  for(let i = motionCaptures.length - 1; i >= 0 && removed < n; i--){
+    if(motionCaptures[i].label === sign){
+      motionCaptures.splice(i, 1);
+      removed++;
+    }
+  }
+
+  document.getElementById('motion-total-count').textContent = motionCaptures.length;
+  updateMotionCell(sign);
+  updateActiveMotionStripCount();
+  updateMotionCountTable();
+
+  motionRecentLog.unshift({ sign: `−${n}×${sign}`, ts: 'deleted', total: motionCaptures.length });
+  if(motionRecentLog.length > 40) motionRecentLog.pop();
+  const log = document.getElementById('motion-mini-log');
+  log.innerHTML = motionRecentLog.map(e =>
+    `<div class="ml-entry">
+      <span class="ml-sign-badge" style="color:var(--red)">${e.sign}</span>
+      <span style="color:var(--muted)">${e.total}</span>
+      <span class="ml-ts">${e.ts}</span>
+    </div>`
+  ).join('');
+}
+
+window.exportMotionJSON = function(){
+  if(motionCaptures.length === 0){
+    alert('No sequences yet. Record some motion signs first.');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(motionCaptures, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'sequence_data.json';  // put this into data/ folder in repo
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.clearMotionData = function(){
+  if(!confirm(`Clear all ${motionCaptures.length} sequences? This cannot be undone.`)) return;
+  motionCaptures   = [];
+  motionRecentLog  = [];
+  document.getElementById('motion-total-count').textContent = '0';
+  document.getElementById('motion-mini-log').innerHTML = 'No sequences yet — press R to record…';
+  MOTION_SIGNS.forEach(s => updateMotionCell(s));
+  updateActiveMotionStripCount();
+  updateMotionCountTable();
+};
+
+window.updateFrameTarget = function(v){
+  SEQ_FRAMES = parseInt(v);
+  document.getElementById('frames-val').textContent = v;
+  document.getElementById('seq-target-frames').textContent = v;
+};
 
 // ── Skeleton draw ──
 const CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
