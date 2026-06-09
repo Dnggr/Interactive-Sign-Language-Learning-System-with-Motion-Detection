@@ -2,57 +2,60 @@
  * m2-test.js — Model Accuracy Tester
  * Member 2 [Manlangit] | Branch: [Manlangit]cameratracking-engine
  *
- * Used exclusively by m2-test.html
- * Handles: webcam init, MediaPipe, TF.js model loading,
- *          4-tab UI: Static live test, Accuracy Audit, Quiz Mode, Raw Data
+ * FIX LOG (this version):
+ *   FIX-1: Removed the top-level `await new Promise(...)` that dynamically
+ *           injected TF.js via a <script> tag. The HTML already loads TF.js
+ *           as a <script> tag in <head> — double-loading caused a race where
+ *           window.tf was sometimes undefined when init() ran.
  *
- * Requires (served from project root):
- *   /asl_static_model/model.json
- *   /asl_static_model/labels.json
- *   /asl_static_model/group1-shard1of1.bin
+ *   FIX-2: Added a guard at the top of init() that checks window.tf is
+ *           defined before proceeding. Shows a clear error if TF.js failed
+ *           to load from the CDN (e.g. no internet, blocked by browser).
  *
- * FIX LOG:
- *   - tf.io.fromMemory() was called with 3 positional args (wrong).
- *     Correct signature is tf.io.fromMemory({ modelTopology, weightsManifest, weightData }).
- *     The old call silently produced a broken IOHandler that tf.loadLayersModel() crashed on.
+ *   FIX-3: Model and labels are fetched from relative paths
+ *           (./asl_static_model/...) instead of absolute (/asl_static_model/...).
+ *           Absolute paths require the page to be served from the project root.
+ *           Relative paths work from any subfolder or local server setup.
  *
- *   - probs[] was assigned inside tf.tidy() via side-effect, which is fragile.
- *     Restructured runClassifier() so probs is extracted cleanly outside tidy.
+ *   FIX-4: fetch() errors now surface clearly in the status bar instead of
+ *           swallowing the exception inside the loading chain.
  *
- *   - DOMContentLoaded listener for the autolog toggle was unreliable when the
- *     module script executes after DOM parse. Replaced with a safe init-time hookup.
+ * HOW TO RUN:
+ *   You MUST serve this from a local HTTP server — not file://.
+ *   In your project root folder run:
+ *     python -m http.server 8080
+ *   Then open: http://localhost:8080/m2-test.html
  */
 
 import { HandLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm';
 
-// tf comes from the UMD <script> tag in m2-test.html — it is a global, NOT an ES module.
-// Do NOT attempt to import tf here. It is available as window.tf.
+// tf comes from the UMD <script> tag in m2-test.html — it is window.tf.
+// Do NOT import it here. Checked below in init().
 
 // ══════════════════════════════════════════════════════════
 // CONFIGURATION
 // ══════════════════════════════════════════════════════════
 
-const MATCH_THRESHOLD = 75;   // % minimum to count as matched
-const AUTOLOG_HOLD_MS = 1000; // ms hand must hold before auto-log
+const MATCH_THRESHOLD = 75;
+const AUTOLOG_HOLD_MS = 1000;
 const HARD_SIGNS      = ['M','N','S','T','A','U','V','R','I','K'];
 
-// Signs that exist in labels.json (populated after model loads)
 let ALL_SIGNS = [];
 
 // ══════════════════════════════════════════════════════════
-// MEDIAPIPE + TF.JS STATE
+// STATE
 // ══════════════════════════════════════════════════════════
 
-let handLandmarker    = null;
-let staticModel       = null;
-let labelsMap         = {};   // { "0": "A", "1": "B", ... }
-let lastVideoTime     = -1;
-let currentLandmarks  = null; // Array<{x,y,z}> | null — dominant hand, 21 pts
-let frameCount        = 0;
-let fpsLast           = performance.now();
-let fpsCounter        = 0;
-let allProbs          = [];   // last full probability array from model
+let handLandmarker   = null;
+let staticModel      = null;
+let labelsMap        = {};
+let lastVideoTime    = -1;
+let currentLandmarks = null;
+let frameCount       = 0;
+let fpsLast          = performance.now();
+let fpsCounter       = 0;
+let allProbs         = [];
 
 // ══════════════════════════════════════════════════════════
 // SKELETON DRAWING
@@ -91,6 +94,17 @@ function drawSkeleton(ctx, landmarks, w, h) {
 
 async function init() {
   try {
+
+    // ── FIX-2: Guard — TF.js must already be loaded by the <script> tag ──
+    if (typeof window.tf === 'undefined') {
+      throw new Error(
+        'TensorFlow.js (window.tf) is not defined. ' +
+        'Check that the <script src="tf.min.js"> tag in m2-test.html loaded correctly. ' +
+        'Make sure you are running from a local server (python -m http.server 8080), ' +
+        'not opening the file directly (file://).'
+      );
+    }
+
     setStatus('Requesting webcam…', 'loading');
 
     // ── Webcam ────────────────────────────────────────────
@@ -99,24 +113,22 @@ async function init() {
       audio: false
     });
 
-    // Feed stream to all 4 tab video elements
     ['webcam-static','webcam-audit','webcam-quiz','webcam-raw'].forEach(id => {
       const v = document.getElementById(id);
-      v.srcObject = stream;
+      if (v) v.srcObject = stream;
     });
 
     const vMain = document.getElementById('webcam-static');
     await new Promise(r => { vMain.onloadedmetadata = () => vMain.play().then(r); });
-    ['webcam-audit','webcam-quiz','webcam-raw'].forEach(id =>
-      document.getElementById(id).play()
-    );
+    ['webcam-audit','webcam-quiz','webcam-raw'].forEach(id => {
+      const v = document.getElementById(id);
+      if (v) v.play();
+    });
 
-    // Sync canvas sizes once video dimensions are known
     const syncCanvas = (videoId, canvasId) => {
       const v = document.getElementById(videoId);
       const c = document.getElementById(canvasId);
-      c.width  = v.videoWidth;
-      c.height = v.videoHeight;
+      if (v && c) { c.width = v.videoWidth; c.height = v.videoHeight; }
     };
     syncCanvas('webcam-static', 'canvas-static');
     syncCanvas('webcam-audit',  'canvas-audit');
@@ -152,49 +164,47 @@ async function init() {
     setDot('model-dot', 'loading');
     document.getElementById('model-status-text').textContent = 'TF.js model — loading…';
 
-    // Keras 3 names weights as "asl_static_model/dense/kernel" but TF.js 4.x
-    // expects just "dense/kernel" — patch the manifest before loading.
-    const modelJsonResp = await fetch('/asl_static_model/model.json');
-    const modelJson     = await modelJsonResp.json();
+    // ── Load model with Keras 3 weight-name fix ──────────────────────────────
+    // Keras 3 exports weight names as "asl_static_model/dense/kernel" but
+    // TF.js 4.x expects "dense/kernel". Strip the prefix from weightSpecs.
+    // Also: tf.io.fromMemory() takes 3 positional args, NOT one object:
+    //   fromMemory(modelTopology, weightSpecs, weightData)
+    let modelJson, weightsBuffer;
+    try {
+      const r = await fetch('./asl_static_model/model.json');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      modelJson = await r.json();
+    } catch (e) {
+      throw new Error('Cannot fetch model.json — is asl_static_model/ next to m2-test.html? ' + e.message);
+    }
 
-    // Strip the "asl_static_model/" prefix from every weight name
-    modelJson.weightsManifest.forEach(group => {
-      group.weights.forEach(w => {
-        w.name = w.name.replace(/^asl_static_model\//, '');
-      });
-    });
+    try {
+      const binName = modelJson.weightsManifest[0].paths[0];
+      const r = await fetch('./asl_static_model/' + binName);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      weightsBuffer = await r.arrayBuffer();
+    } catch (e) {
+      throw new Error('Cannot fetch weights .bin file — is it inside asl_static_model/? ' + e.message);
+    }
 
-    // Fix Keras 3 InputLayer: rename "batch_shape" → "batchInputShape"
-    modelJson.modelTopology.model_config.config.layers.forEach(layer => {
-      if (layer.class_name === 'InputLayer' && layer.config.batch_shape) {
-        layer.config.batchInputShape = layer.config.batch_shape;
-        delete layer.config.batch_shape;
-      }
-    });
+    // Strip "asl_static_model/" prefix so names match layer names in topology
+    const PREFIX = 'asl_static_model/';
+    const weightSpecs = modelJson.weightsManifest[0].weights.map(w => ({
+      ...w,
+      name: w.name.startsWith(PREFIX) ? w.name.slice(PREFIX.length) : w.name
+    }));
 
-    const weightsResp   = await fetch('/asl_static_model/group1-shard1of1.bin');
-    const weightsBuffer = await weightsResp.arrayBuffer();
-
-    // ────────────────────────────────────────────────────────────────────────
-    // FIX: tf.io.fromMemory() takes a SINGLE object, NOT 3 positional args.
-    //
-    // WRONG (old code):
-    //   tf.io.fromMemory(modelJson.modelTopology, modelJson.weightsManifest, weightsBuffer)
-    //
-    // CORRECT:
-    //   tf.io.fromMemory({
-    //     modelTopology:    modelJson.modelTopology,
-    //     weightsManifest:  modelJson.weightsManifest,
-    //     weightData:       weightsBuffer        // ← key name is weightData, not weights
-    //   })
-    // ────────────────────────────────────────────────────────────────────────
-    const modelArtifacts = tf.io.fromMemory({
-      modelTopology:   modelJson.modelTopology,
-      weightsManifest: modelJson.weightsManifest,
-      weightData:      weightsBuffer
-    });
-
-    staticModel = await tf.loadLayersModel(modelArtifacts);
+    try {
+      staticModel = await window.tf.loadLayersModel(
+        window.tf.io.fromMemory(
+          modelJson.modelTopology,  // arg 1: topology
+          weightSpecs,              // arg 2: weight specs (stripped names)
+          weightsBuffer             // arg 3: raw binary weights
+        )
+      );
+    } catch (e) {
+      throw new Error('tf.loadLayersModel failed — ' + e.message);
+    }
 
     setDot('model-dot', 'ok');
     document.getElementById('model-status-text').style.color = 'var(--green)';
@@ -204,20 +214,28 @@ async function init() {
     setDot('labels-dot', 'loading');
     document.getElementById('labels-status-text').textContent = 'labels.json — loading…';
 
-    const resp = await fetch('/asl_static_model/labels.json');
-    labelsMap  = await resp.json();
-    ALL_SIGNS  = Object.values(labelsMap).sort();
+    let labelsResp;
+    try {
+      labelsResp = await fetch('./asl_static_model/labels.json');
+      if (!labelsResp.ok) throw new Error(`HTTP ${labelsResp.status} — file not found`);
+    } catch (e) {
+      throw new Error(
+        'Could not load asl_static_model/labels.json. ' +
+        'Original error: ' + e.message
+      );
+    }
+    labelsMap = await labelsResp.json();
+    ALL_SIGNS = Object.values(labelsMap).sort();
 
     setDot('labels-dot', 'ok');
     document.getElementById('labels-status-text').style.color = 'var(--green)';
     document.getElementById('labels-status-text').textContent =
       `labels.json — ${ALL_SIGNS.length} signs ✓`;
 
-    // ── Build UI grids ────────────────────────────────────
+    // ── Build UI grids ─────────────────────────────────────
     buildSignSelectorGrid();
     buildAuditSignGrid();
 
-    // ── Wire up autolog toggle (safe — DOM is definitely ready by now) ────
     const toggle = document.getElementById('autolog-toggle');
     if (toggle) {
       toggle.addEventListener('change', () => {
@@ -233,7 +251,7 @@ async function init() {
 
   } catch (e) {
     setStatus('❌ ' + e.message, 'err');
-    console.error('[m2-test]', e);
+    console.error('[m2-test] Init failed:', e);
   }
 }
 
@@ -263,7 +281,6 @@ function loop() {
     if (lms.length > 0) {
       currentLandmarks = pickDominantHand(lms, hdns);
 
-      // Draw skeleton on every tab's canvas
       ['canvas-static','canvas-audit','canvas-quiz','canvas-raw'].forEach(id => {
         const c   = document.getElementById(id);
         const ctx = c.getContext('2d');
@@ -276,8 +293,7 @@ function loop() {
         const el = document.getElementById(id);
         if (el) el.textContent = lms.length + ' hand' + plural + ' detected';
       });
-      document.getElementById('hand-status-pill').textContent =
-        lms.length + ' hand' + plural;
+      document.getElementById('hand-status-pill').textContent = lms.length + ' hand' + plural;
 
     } else {
       currentLandmarks = null;
@@ -292,11 +308,9 @@ function loop() {
       document.getElementById('hand-status-pill').textContent = 'No hand';
     }
 
-    // Run classifier if model ready and hand present
     if (staticModel && currentLandmarks) {
       const { label, confidence, probs } = runClassifier(currentLandmarks);
       allProbs = probs;
-
       onStaticResult(label, confidence);
       onAuditResult(label, confidence);
       onQuizResult(label, confidence);
@@ -315,23 +329,18 @@ function loop() {
 }
 
 // ══════════════════════════════════════════════════════════
-// CLASSIFIER — TF.js inference
+// CLASSIFIER
 // ══════════════════════════════════════════════════════════
 
 function runClassifier(landmarks) {
-  const flat  = landmarks.flatMap(p => [p.x, p.y, p.z]);
-  const input = tf.tensor2d([flat]);   // shape [1, 63]
-
-  // FIX: extract the output tensor BEFORE tf.tidy() disposes it.
-  // tf.tidy() runs synchronously and disposes every tensor created inside it
-  // after the callback returns. dataSync() is fine inside tidy, but assigning
-  // to outer variables via side-effect is fragile. Cleaner approach below.
+  const flat         = landmarks.flatMap(p => [p.x, p.y, p.z]);
+  const input        = window.tf.tensor2d([flat]);
   const outputTensor = staticModel.predict(input);
-  const rawProbs     = Array.from(outputTensor.dataSync());  // plain JS array — safe
+  const rawProbs     = Array.from(outputTensor.dataSync());
   outputTensor.dispose();
   input.dispose();
 
-  const maxIdx   = rawProbs.indexOf(Math.max(...rawProbs));
+  const maxIdx     = rawProbs.indexOf(Math.max(...rawProbs));
   const confidence = Math.round(rawProbs[maxIdx] * 100);
   const label      = labelsMap[String(maxIdx)] ?? null;
 
@@ -347,7 +356,7 @@ function pickDominantHand(landmarks, handedness) {
   if (landmarks.length === 1) return landmarks[0];
   for (let i = 0; i < (handedness || []).length; i++) {
     const cat = (handedness[i]?.[0]?.categoryName) || '';
-    if (cat === 'Left') return landmarks[i]; // mirrored: "Left" = user's right
+    if (cat === 'Left') return landmarks[i];
   }
   return landmarks[0];
 }
@@ -392,12 +401,12 @@ window.switchTab = function(name) {
 // TAB 1 — STATIC MODEL LIVE TEST
 // ══════════════════════════════════════════════════════════
 
-let testMode          = 'any';    // 'any' | 'filter'
-let testWatchSign     = null;
-let autologEnabled    = true;
-let autologTimer      = null;
-let autologLastLabel  = null;
-let liveLog           = [];
+let testMode         = 'any';
+let testWatchSign    = null;
+let autologEnabled   = true;
+let autologTimer     = null;
+let autologLastLabel = null;
+let liveLog          = [];
 
 function buildSignSelectorGrid() {
   const grid = document.getElementById('sign-selector-grid');
@@ -422,12 +431,10 @@ function setWatchSign(sign) {
 window.setMode = function(mode) {
   testMode = mode;
   ['any','filter'].forEach(m => {
-    document.getElementById('mode-' + m)
-      ?.classList.toggle('active', m === mode);
+    document.getElementById('mode-' + m)?.classList.toggle('active', m === mode);
   });
   const block = document.getElementById('sign-selector-block');
   if (block) block.style.display = mode === 'filter' ? 'block' : 'none';
-
   if (mode === 'filter' && !testWatchSign && ALL_SIGNS.length) {
     setWatchSign(ALL_SIGNS[0]);
   }
@@ -448,11 +455,11 @@ function onStaticResult(label, confidence) {
   const liveDot      = document.getElementById('live-dot');
 
   if (!label) {
-    resultCard.className    = 'result-card no-hand';
-    resultLabel.className   = 'result-label no-match';
-    resultLabel.textContent = '–';
-    resultConf.textContent  = '0%';
-    resultConf.className    = 'result-conf low';
+    resultCard.className     = 'result-card no-hand';
+    resultLabel.className    = 'result-label no-match';
+    resultLabel.textContent  = '–';
+    resultConf.textContent   = '0%';
+    resultConf.className     = 'result-conf low';
     resultStatus.textContent = 'No hand detected';
     confBar.style.width      = '0%';
     confBar.style.background = 'var(--muted)';
@@ -464,11 +471,11 @@ function onStaticResult(label, confidence) {
   const isWatched = testMode === 'any' || label === testWatchSign;
   const matched   = confidence >= MATCH_THRESHOLD && isWatched;
 
-  resultCard.className    = matched ? 'result-card matched' : 'result-card';
-  resultLabel.className   = matched ? 'result-label' : 'result-label unmatched';
-  resultLabel.textContent = label;
-  resultConf.textContent  = confidence + '%';
-  resultConf.className    = 'result-conf ' + confClass(confidence);
+  resultCard.className     = matched ? 'result-card matched' : 'result-card';
+  resultLabel.className    = matched ? 'result-label' : 'result-label unmatched';
+  resultLabel.textContent  = label;
+  resultConf.textContent   = confidence + '%';
+  resultConf.className     = 'result-conf ' + confClass(confidence);
   resultStatus.textContent = matched ? `Matched ≥${MATCH_THRESHOLD}%` : 'Low confidence';
   confBar.style.width      = confidence + '%';
   confBar.style.background = confBarColor(confidence);
@@ -494,11 +501,9 @@ function updateTop5(probs) {
     body.innerHTML = '<div class="empty-state">Show your hand to see predictions</div>';
     return;
   }
-
   const indexed = probs.map((p, i) => ({ i, p }));
   indexed.sort((a, b) => b.p - a.p);
   const top5 = indexed.slice(0, 5);
-
   body.innerHTML = top5.map((item, rank) => {
     const sign  = labelsMap[String(item.i)] ?? '?';
     const pct   = Math.round(item.p * 100);
@@ -518,9 +523,7 @@ function updateTop5(probs) {
 function appendLiveLog(label, confidence) {
   const body = document.getElementById('live-log-body');
   const now  = new Date().toLocaleTimeString('en-US', { hour12: false });
-
   if (body.querySelector('.empty-state')) body.innerHTML = '';
-
   const row = document.createElement('div');
   row.className = 'live-log-row';
   row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border);font-size:12px;';
@@ -531,7 +534,6 @@ function appendLiveLog(label, confidence) {
       <div style="height:100%;width:${confidence}%;background:${confBarColor(confidence)};border-radius:3px"></div>
     </div>
     <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${now}</span>`;
-
   body.prepend(row);
   while (body.children.length > 50) body.removeChild(body.lastChild);
   liveLog.push({ label, confidence, time: now });
@@ -575,9 +577,7 @@ window.startAuditSign = function() {
   auditTrialsDone   = 0;
   auditLastLabel    = null;
   clearTimeout(auditHoldTimer);
-
   if (!auditData[auditSign]) auditData[auditSign] = { trials: 0, correct: 0 };
-
   document.getElementById('audit-progress-text').textContent = `0 / ${auditTrialsTarget} trials`;
   document.getElementById('audit-progress-bar').style.width  = '0%';
 };
@@ -600,7 +600,6 @@ window.resetAudit = function() {
 
 function onAuditResult(label, confidence) {
   if (!auditRunning || !auditSign || !label) return;
-
   if (label !== auditLastLabel) {
     auditLastLabel = label;
     clearTimeout(auditHoldTimer);
@@ -611,15 +610,11 @@ function onAuditResult(label, confidence) {
       if (label === auditSign && confidence >= MATCH_THRESHOLD) entry.correct++;
       auditData[auditSign] = entry;
       auditTrialsDone      = entry.trials;
-
       const pct = Math.round((auditTrialsDone / auditTrialsTarget) * 100);
-      document.getElementById('audit-progress-text').textContent =
-        `${auditTrialsDone} / ${auditTrialsTarget} trials`;
+      document.getElementById('audit-progress-text').textContent = `${auditTrialsDone} / ${auditTrialsTarget} trials`;
       document.getElementById('audit-progress-bar').style.width = pct + '%';
-
       refreshAuditTable();
       refreshAuditStats();
-
       if (auditTrialsDone >= auditTrialsTarget) {
         auditRunning = false;
         document.getElementById('audit-progress-text').textContent =
@@ -636,7 +631,6 @@ function refreshAuditTable() {
     body.innerHTML = '<div class="empty-state">Select a sign and press Start Test</div>';
     return;
   }
-
   body.innerHTML = keys.map(sign => {
     const d   = auditData[sign];
     const acc = d.trials > 0 ? Math.round((d.correct / d.trials) * 100) : 0;
@@ -667,7 +661,6 @@ function refreshAuditStats() {
   });
   const overall = totalT > 0 ? Math.round((totalC / totalT) * 100) : 0;
   const col     = overall >= 80 ? 'var(--green)' : overall >= 60 ? 'var(--amber)' : 'var(--red)';
-
   document.getElementById('stat-overall').textContent  = totalT > 0 ? overall + '%' : '–';
   document.getElementById('stat-overall').style.color  = col;
   document.getElementById('stat-tested').textContent   = keys.length;
@@ -678,14 +671,12 @@ function refreshAuditStats() {
 window.exportAuditCSV = function() {
   const keys = Object.keys(auditData).sort();
   if (keys.length === 0) { alert('No audit data to export yet.'); return; }
-
   let csv = 'sign,trials,correct,accuracy_pct\n';
   keys.forEach(s => {
     const d   = auditData[s];
     const acc = d.trials > 0 ? Math.round((d.correct / d.trials) * 100) : 0;
     csv      += `${s},${d.trials},${d.correct},${acc}\n`;
   });
-
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement('a'), { href: url, download: 'audit_results.csv' });
@@ -697,17 +688,17 @@ window.exportAuditCSV = function() {
 // TAB 3 — QUIZ MODE
 // ══════════════════════════════════════════════════════════
 
-let quizActive       = false;
-let quizSet          = 'all';
-let quizRounds       = 10;
-let quizQueue        = [];
-let quizIdx          = 0;
-let quizCorrect      = 0;
-let quizTotal        = 0;
-let quizWaiting      = false;
-let quizHoldTimer    = null;
-let quizLastLabel    = null;
-const QUIZ_HOLD_MS   = 1200;
+let quizActive     = false;
+let quizSet        = 'all';
+let quizRounds     = 10;
+let quizQueue      = [];
+let quizIdx        = 0;
+let quizCorrect    = 0;
+let quizTotal      = 0;
+let quizWaiting    = false;
+let quizHoldTimer  = null;
+let quizLastLabel  = null;
+const QUIZ_HOLD_MS = 1200;
 
 window.setQuizSet = function(set) {
   quizSet = set;
@@ -718,14 +709,11 @@ window.setQuizSet = function(set) {
 
 window.startQuiz = function() {
   quizRounds = parseInt(document.getElementById('quiz-rounds-slider').value);
-
   let pool;
   if (quizSet === 'hard')       pool = ALL_SIGNS.filter(s => HARD_SIGNS.includes(s));
   else if (quizSet === 'alpha') pool = ALL_SIGNS.filter(s => s.length === 1);
   else                          pool = [...ALL_SIGNS];
-
   if (pool.length === 0) { alert('No signs available for this set.'); return; }
-
   quizQueue = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   while (quizQueue.length < quizRounds) {
@@ -737,10 +725,8 @@ window.startQuiz = function() {
   quizTotal   = 0;
   quizActive  = true;
   quizWaiting = false;
-
   document.getElementById('quiz-history-body').innerHTML =
     '<div class="empty-state">Quiz results appear here</div>';
-
   updateQuizScoreUI();
   showQuizSign();
 };
@@ -773,10 +759,8 @@ function onQuizResult(label, confidence) {
     if (!label) resetQuizResultCard();
     return;
   }
-
   const target  = quizQueue[quizIdx];
   const matched = label === target && confidence >= MATCH_THRESHOLD;
-
   document.getElementById('quiz-result-card').className    = matched ? 'result-card matched' : 'result-card';
   document.getElementById('quiz-result-label').className   = matched ? 'result-label' : 'result-label unmatched';
   document.getElementById('quiz-result-label').textContent = label;
@@ -786,7 +770,6 @@ function onQuizResult(label, confidence) {
     matched ? '✅ Correct! Hold it…' : label !== target ? `Showing ${label}, need ${target}` : 'Hold steady…';
   document.getElementById('quiz-conf-bar').style.width      = confidence + '%';
   document.getElementById('quiz-conf-bar').style.background = confBarColor(confidence);
-
   if (matched && label !== quizLastLabel) {
     quizLastLabel = label;
     clearTimeout(quizHoldTimer);
@@ -843,7 +826,6 @@ function updateQuizScoreUI() {
 function appendQuizHistory(target, detected, confidence, correct) {
   const body = document.getElementById('quiz-history-body');
   if (body.querySelector('.empty-state')) body.innerHTML = '';
-
   const icon = correct ? '✅' : '❌';
   const col  = correct ? 'var(--green)' : 'var(--red)';
   const row  = document.createElement('div');
@@ -853,20 +835,16 @@ function appendQuizHistory(target, detected, confidence, correct) {
     <span style="font-weight:800;font-size:18px;color:var(--text);min-width:40px">${target}</span>
     <span style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">→ ${detected}</span>
     <span style="font-family:var(--font-mono);font-size:11px;color:${col};margin-left:auto">${confidence}%</span>`;
-
   body.prepend(row);
   while (body.children.length > 60) body.removeChild(body.lastChild);
 }
 
-// Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (e.code === 'Space' && quizActive && quizWaiting) {
     e.preventDefault();
     nextQuizSign();
   }
-  if (e.code === 'KeyF') {
-    freezeLandmarks();
-  }
+  if (e.code === 'KeyF') freezeLandmarks();
 });
 
 // ══════════════════════════════════════════════════════════
@@ -879,10 +857,8 @@ let rawFrameCount   = 0;
 function onRawResult(landmarks, probs) {
   rawFrameCount++;
   document.getElementById('raw-frame-count').textContent = 'frame ' + rawFrameCount;
-
   const lmsToShow = frozenLandmarks ?? landmarks;
-
-  const lmTable = document.getElementById('raw-landmark-table');
+  const lmTable   = document.getElementById('raw-landmark-table');
   if (!lmsToShow) {
     lmTable.innerHTML = '<div class="empty-state">Show your hand to see raw landmark data</div>';
   } else if (!frozenLandmarks) {
@@ -899,13 +875,11 @@ function onRawResult(landmarks, probs) {
               </div>`;
     }).join('');
   }
-
   const probsBody = document.getElementById('raw-probs-body');
   if (!probs || probs.length === 0) {
     probsBody.innerHTML = '<div class="empty-state">Show your hand</div>';
     return;
   }
-
   const indexed = probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p);
   probsBody.innerHTML = indexed.map((item, rank) => {
     const sign  = labelsMap[String(item.i)] ?? '?';
@@ -926,11 +900,9 @@ function onRawResult(landmarks, probs) {
 window.freezeLandmarks = function() {
   if (!currentLandmarks) return;
   frozenLandmarks = currentLandmarks.map(p => ({ ...p }));
-
   const info = document.getElementById('freeze-info');
   info.style.color = 'var(--green)';
   info.textContent = `Frozen at frame ${rawFrameCount}. Click Clear to resume live.`;
-
   const lmTable = document.getElementById('raw-landmark-table');
   lmTable.innerHTML = frozenLandmarks.map((pt, i) => {
     const x = pt.x.toFixed(4);
