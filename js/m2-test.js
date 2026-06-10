@@ -49,6 +49,8 @@ let ALL_SIGNS = [];
 
 let handLandmarker   = null;
 let staticModel      = null;
+let motionModel      = null;
+let motionLabelsMap  = {};
 let labelsMap        = {};
 let lastVideoTime    = -1;
 let currentLandmarks = null;
@@ -113,7 +115,7 @@ async function init() {
       audio: false
     });
 
-    ['webcam-static','webcam-audit','webcam-quiz','webcam-raw'].forEach(id => {
+    ['webcam-static','webcam-audit','webcam-quiz','webcam-raw','webcam-motion','webcam-livetest'].forEach(id => {
       const v = document.getElementById(id);
       if (v) v.srcObject = stream;
     });
@@ -134,6 +136,8 @@ async function init() {
     syncCanvas('webcam-audit',  'canvas-audit');
     syncCanvas('webcam-quiz',   'canvas-quiz');
     syncCanvas('webcam-raw',    'canvas-raw');
+    syncCanvas('webcam-motion', 'canvas-motion');
+    syncCanvas('webcam-livetest', 'canvas-livetest');
 
     // ── MediaPipe ─────────────────────────────────────────
     setStatus('Loading MediaPipe…', 'loading');
@@ -209,6 +213,86 @@ async function init() {
     setDot('model-dot', 'ok');
     document.getElementById('model-status-text').style.color = 'var(--green)';
     document.getElementById('model-status-text').textContent = 'TF.js model — ready ✓';
+    const ltsd = document.getElementById('lt-static-dot'); if(ltsd){ltsd.style.background='var(--green)';}
+    const ltst = document.getElementById('lt-static-txt'); if(ltst){ltst.style.color='var(--green)';ltst.textContent='Static model — ready ✓';}
+
+    // ── Motion LSTM model (optional — only if asl_motion_model/ exists) ──────
+    try {
+      const motionDot = document.getElementById('motion-model-dot');
+      const motionTxt = document.getElementById('motion-model-status-text');
+      if (motionDot) motionDot.style.animation = 'pulse 1s infinite';
+      if (motionDot) motionDot.style.background = 'var(--amber)';
+      if (motionTxt) motionTxt.textContent = 'asl_motion_model — loading…';
+
+      const mr = await fetch('./asl_motion_model/model.json');
+      if (!mr.ok) throw new Error('HTTP ' + mr.status);
+      const motionJson = await mr.json();
+
+      const br = await fetch('./asl_motion_model/' + motionJson.weightsManifest[0].paths[0]);
+      if (!br.ok) throw new Error('HTTP ' + br.status);
+      const motionWeightsBuffer = await br.arrayBuffer();
+
+      // Fix: Keras 3 exports InputLayer with `batch_shape` but TF.js expects `batchInputShape`
+      // Walk the model config and rename the key wherever it appears
+      function fixBatchShape(obj) {
+        if (Array.isArray(obj)) return obj.map(fixBatchShape);
+        if (obj && typeof obj === 'object') {
+          const out = {};
+          for (const [k, v] of Object.entries(obj)) {
+            const newKey = k === 'batch_shape' ? 'batchInputShape' : k;
+            out[newKey] = fixBatchShape(v);
+          }
+          return out;
+        }
+        return obj;
+      }
+      motionJson.modelTopology = fixBatchShape(motionJson.modelTopology);
+
+      // Strip model name prefix from weight names so TF.js can match them
+      const MPREFIX = 'asl_motion/';
+      const motionWeightSpecs = motionJson.weightsManifest[0].weights.map(w => ({
+        ...w,
+        name: w.name.startsWith(MPREFIX) ? w.name.slice(MPREFIX.length) : w.name
+      }));
+
+      // Use single-object form of fromMemory (multi-arg is deprecated in TF.js 4.x)
+      // Also fix: Keras 3 LSTM models use model_config wrapper, not bare modelTopology
+      const motionTopology = motionJson.modelTopology;
+      const motionArtifacts = {
+        modelTopology: motionTopology,
+        weightSpecs:   motionWeightSpecs,
+        weightData:    motionWeightsBuffer,
+        format:        motionJson.format        ?? 'layers-model',
+        generatedBy:   motionJson.generatedBy   ?? '',
+        convertedBy:   motionJson.convertedBy   ?? '',
+      };
+
+      motionModel = await window.tf.loadLayersModel(
+        window.tf.io.fromMemory(motionArtifacts)
+      );
+
+      if (motionDot) { motionDot.style.animation = 'none'; motionDot.style.background = 'var(--green)'; }
+      if (motionTxt) { motionTxt.style.color = 'var(--green)'; motionTxt.textContent = 'asl_motion_model — ready ✓'; }
+      const ltmd = document.getElementById('lt-motion-dot'); if(ltmd){ltmd.style.background='var(--green)';}
+      const ltmt = document.getElementById('lt-motion-txt'); if(ltmt){ltmt.style.color='var(--green)';ltmt.textContent='Motion model — ready ✓';}
+
+      // Load motion labels
+      const mlr = await fetch('./asl_motion_model/labels.json');
+      if (!mlr.ok) throw new Error('HTTP ' + mlr.status);
+      motionLabelsMap = await mlr.json();
+
+      const mlDot = document.getElementById('motion-labels-dot');
+      const mlTxt = document.getElementById('motion-labels-status-text');
+      if (mlDot) { mlDot.style.background = 'var(--green)'; }
+      if (mlTxt) { mlTxt.style.color = 'var(--green)'; mlTxt.textContent = 'motion labels.json — ' + Object.keys(motionLabelsMap).length + ' signs ✓'; }
+
+    } catch (motionErr) {
+      const motionDot = document.getElementById('motion-model-dot');
+      const motionTxt = document.getElementById('motion-model-status-text');
+      if (motionDot) { motionDot.style.animation = 'none'; motionDot.style.background = 'var(--red)'; }
+      if (motionTxt) { motionTxt.style.color = 'var(--red)'; motionTxt.textContent = 'asl_motion_model — not found (train first)'; }
+      console.warn('[m2-test] Motion model not loaded:', motionErr.message);
+    }
 
     // ── Labels ────────────────────────────────────────────
     setDot('labels-dot', 'loading');
@@ -281,7 +365,7 @@ function loop() {
     if (lms.length > 0) {
       currentLandmarks = pickDominantHand(lms, hdns);
 
-      ['canvas-static','canvas-audit','canvas-quiz','canvas-raw'].forEach(id => {
+      ['canvas-static','canvas-audit','canvas-quiz','canvas-raw','canvas-motion','canvas-livetest'].forEach(id => {
         const c   = document.getElementById(id);
         const ctx = c.getContext('2d');
         ctx.clearRect(0, 0, c.width, c.height);
@@ -289,7 +373,7 @@ function loop() {
       });
 
       const plural = lms.length > 1 ? 's' : '';
-      ['hand-status','hand-status-audit','hand-status-quiz','hand-status-raw'].forEach(id => {
+      ['hand-status','hand-status-audit','hand-status-quiz','hand-status-raw','hand-status-motion','hand-status-livetest'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = lms.length + ' hand' + plural + ' detected';
       });
@@ -297,11 +381,11 @@ function loop() {
 
     } else {
       currentLandmarks = null;
-      ['canvas-static','canvas-audit','canvas-quiz','canvas-raw'].forEach(id => {
+      ['canvas-static','canvas-audit','canvas-quiz','canvas-raw','canvas-motion','canvas-livetest'].forEach(id => {
         const c = document.getElementById(id);
         c.getContext('2d').clearRect(0, 0, c.width, c.height);
       });
-      ['hand-status','hand-status-audit','hand-status-quiz','hand-status-raw'].forEach(id => {
+      ['hand-status','hand-status-audit','hand-status-quiz','hand-status-raw','hand-status-motion','hand-status-livetest'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = 'No hand detected';
       });
@@ -323,6 +407,11 @@ function loop() {
       }
       onRawResult(currentLandmarks, []);
     }
+
+    // Feed motion buffer every frame
+    onMotionFrame(currentLandmarks);
+    // Feed combined live test tab
+    onLiveTestFrame(currentLandmarks, allProbs);
   }
 
   requestAnimationFrame(loop);
@@ -930,3 +1019,373 @@ window.clearFreeze = function() {
 // ══════════════════════════════════════════════════════════
 
 init();
+// ══════════════════════════════════════════════════════════
+// TAB 5 — MOTION MODEL LIVE TEST
+// ══════════════════════════════════════════════════════════
+
+const MOTION_FRAMES     = 30;
+const MOTION_FEATURES   = 63;
+let   motionBuffer      = [];      // rolling window of landmark frames
+let   motionThreshold   = 60;      // min confidence % to display
+let   motionLogEntries  = 0;
+let   motionPredicting  = false;   // debounce — don't stack tf calls
+
+function onMotionFrame(landmarks) {
+  if (!motionModel || !landmarks) {
+    // No model or no hand — show buffer draining but don't reset to 0
+    // (keep the bar steady so it doesn't flash)
+    return;
+  }
+
+  // Push current frame into rolling buffer
+  const frame = landmarks.flatMap(p => [p.x, p.y, p.z]);
+  // Pad/trim to exactly 63 values in case hand landmark count differs
+  const paddedFrame = frame.slice(0, MOTION_FEATURES);
+  while (paddedFrame.length < MOTION_FEATURES) paddedFrame.push(0);
+
+  motionBuffer.push(paddedFrame);
+  if (motionBuffer.length > MOTION_FRAMES) motionBuffer.shift();
+
+  // Update progress bar
+  const bufEl  = document.getElementById('motion-buf-count');
+  const barEl  = document.getElementById('motion-buf-bar');
+  const filled = motionBuffer.length;
+  if (bufEl) bufEl.textContent = filled + ' / ' + MOTION_FRAMES;
+  if (barEl) barEl.style.width = Math.round((filled / MOTION_FRAMES) * 100) + '%';
+
+  // Once we have a full 30-frame window, run prediction
+  if (motionBuffer.length === MOTION_FRAMES && !motionPredicting) {
+    motionPredicting = true;
+    runMotionClassifier([...motionBuffer]);
+    // Clear fully — must collect a fresh 30 frames before next prediction
+    motionBuffer = [];
+    motionPredicting = false;
+  }
+}
+
+function runMotionClassifier(buffer) {
+  // buffer: array of 30 frames, each 63 floats → shape [1, 30, 63]
+  const flat  = buffer.flat();
+  const input = window.tf.tensor3d([buffer], [1, MOTION_FRAMES, MOTION_FEATURES]);
+  const out   = motionModel.predict(input);
+  const probs = Array.from(out.dataSync());
+  out.dispose();
+  input.dispose();
+
+  const maxIdx     = probs.indexOf(Math.max(...probs));
+  const confidence = Math.round(probs[maxIdx] * 100);
+  const label      = motionLabelsMap[String(maxIdx)] ?? '?';
+
+  updateMotionUI(label, confidence, probs);
+}
+
+function updateMotionUI(label, confidence, probs) {
+  const card    = document.getElementById('motion-result-card');
+  const lbl     = document.getElementById('motion-result-label');
+  const conf    = document.getElementById('motion-result-conf');
+  const status  = document.getElementById('motion-result-status');
+  const bar     = document.getElementById('motion-conf-bar');
+
+  const isAboveThreshold = confidence >= motionThreshold;
+
+  if (isAboveThreshold) {
+    card.className  = 'result-card matched';
+    lbl.className   = 'result-label';
+    lbl.textContent = label;
+  } else {
+    card.className  = 'result-card';
+    lbl.className   = 'result-label unmatched';
+    lbl.textContent = label;
+  }
+
+  conf.textContent  = confidence + '%';
+  conf.className    = 'result-conf ' + confClass(confidence);
+  status.textContent = isAboveThreshold
+    ? `✅ Detected ≥${motionThreshold}%`
+    : `Low confidence — keep signing`;
+  bar.style.width      = confidence + '%';
+  bar.style.background = confBarColor(confidence);
+
+  // Update all-class probs panel
+  updateMotionProbs(probs);
+
+  // Append to log if above threshold
+  if (isAboveThreshold) appendMotionLog(label, confidence);
+}
+
+function updateMotionProbs(probs) {
+  const body = document.getElementById('motion-probs-body');
+  if (!body || !probs || probs.length === 0) return;
+
+  const indexed = probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p);
+  body.innerHTML = indexed.map((item, rank) => {
+    const sign  = motionLabelsMap[String(item.i)] ?? '?';
+    const pct   = Math.round(item.p * 100);
+    const isTop = rank === 0;
+    const col   = isTop ? 'var(--green)' : 'var(--text-dim)';
+    return `
+      <div class="top5-row${isTop ? ' winner' : ''}">
+        <span class="top5-rank">#${rank + 1}</span>
+        <span class="top5-sign${isTop ? ' winner-sign' : ''}" style="min-width:90px;">${sign}</span>
+        <div class="top5-bar-wrap">
+          <div class="top5-bar-fill${isTop ? ' top' : ''}" style="width:${pct}%"></div>
+        </div>
+        <span class="top5-pct">${pct}%</span>
+      </div>`;
+  }).join('');
+}
+
+function appendMotionLog(label, confidence) {
+  const body = document.getElementById('motion-log-body');
+  if (!body) return;
+  if (body.querySelector('.empty-state')) body.innerHTML = '';
+
+  motionLogEntries++;
+  const countEl = document.getElementById('motion-log-count');
+  if (countEl) countEl.textContent = motionLogEntries + ' prediction' + (motionLogEntries !== 1 ? 's' : '');
+
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const col = confBarColor(confidence);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border);font-size:12px;';
+  row.innerHTML = `
+    <span style="font-size:18px;font-weight:800;color:var(--green);min-width:110px;">${label}</span>
+    <span style="font-family:var(--font-mono);font-size:11px;color:${col}">${confidence}%</span>
+    <div style="flex:1;background:var(--border);border-radius:3px;height:4px;overflow:hidden">
+      <div style="height:100%;width:${confidence}%;background:${col};border-radius:3px"></div>
+    </div>
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${now}</span>`;
+  body.prepend(row);
+  while (body.children.length > 60) body.removeChild(body.lastChild);
+}
+
+window.clearMotionLog = function() {
+  motionLogEntries = 0;
+  motionBuffer     = [];
+  const body = document.getElementById('motion-log-body');
+  if (body) body.innerHTML = '<div class="empty-state">Predictions appear here every ~1 second</div>';
+  const countEl = document.getElementById('motion-log-count');
+  if (countEl) countEl.textContent = '0 predictions';
+  const bufEl = document.getElementById('motion-buf-count');
+  if (bufEl) bufEl.textContent = '0 / 30';
+  const barEl = document.getElementById('motion-buf-bar');
+  if (barEl) barEl.style.width = '0%';
+};
+
+window.motionThresholdChange = function(val) {
+  motionThreshold = parseInt(val);
+  const el = document.getElementById('motion-thresh-val');
+  if (el) el.textContent = val + '%';
+};
+
+// ══════════════════════════════════════════════════════════
+// TAB 6 — LIVE TEST (Static + Motion combined)
+// ══════════════════════════════════════════════════════════
+
+let ltBuffer         = [];      // motion frame buffer for live test tab
+let ltPrevLandmarks  = null;    // previous frame landmarks for movement calc
+let ltMoveThreshold  = 0.010;   // movement threshold (slider controls this)
+let ltLogCount       = 0;
+let ltLastMotionLabel = null;   // debounce repeated motion predictions
+let ltLastStaticLabel = null;
+
+// Called every frame from the main loop
+function onLiveTestFrame(landmarks, staticProbs) {
+  // ── Static side ───────────────────────────────────────
+  if (staticModel && landmarks && staticProbs.length > 0) {
+    const maxIdx     = staticProbs.indexOf(Math.max(...staticProbs));
+    const confidence = Math.round(staticProbs[maxIdx] * 100);
+    const label      = labelsMap[String(maxIdx)] ?? '?';
+    updateLtStatic(label, confidence, staticProbs);
+  } else {
+    updateLtStatic(null, 0, []);
+  }
+
+  // ── Movement detection ────────────────────────────────
+  let movementScore = 0;
+  if (landmarks && ltPrevLandmarks) {
+    // Average displacement of all 21 landmarks between frames
+    let total = 0;
+    for (let i = 0; i < Math.min(landmarks.length, ltPrevLandmarks.length); i++) {
+      const dx = landmarks[i].x - ltPrevLandmarks[i].x;
+      const dy = landmarks[i].y - ltPrevLandmarks[i].y;
+      total += Math.sqrt(dx * dx + dy * dy);
+    }
+    movementScore = total / landmarks.length;
+  }
+  ltPrevLandmarks = landmarks ? landmarks.map(p => ({ ...p })) : null;
+
+  // Update movement meter
+  const moveBar = document.getElementById('lt-move-bar');
+  const moveVal = document.getElementById('lt-move-val');
+  if (moveBar) moveBar.style.width = Math.min(movementScore * 2000, 100) + '%';
+  if (moveVal) moveVal.textContent = movementScore.toFixed(4);
+
+  // ── Motion side — only fill buffer when hand is moving ─
+  if (!motionModel || !landmarks) return;
+
+  if (movementScore >= ltMoveThreshold) {
+    const frame = landmarks.flatMap(p => [p.x, p.y, p.z]).slice(0, 63);
+    while (frame.length < 63) frame.push(0);
+    ltBuffer.push(frame);
+    if (ltBuffer.length > 30) ltBuffer.shift();
+  }
+
+  // Update buffer bar
+  const bufBar   = document.getElementById('lt-buf-bar');
+  const bufCount = document.getElementById('lt-buf-count');
+  if (bufBar)   bufBar.style.width = Math.round((ltBuffer.length / 30) * 100) + '%';
+  if (bufCount) bufCount.textContent = ltBuffer.length + ' / 30';
+
+  // Predict when buffer is full
+  if (ltBuffer.length === 30) {
+    runLtMotion([...ltBuffer]);
+    ltBuffer = [];   // reset — must earn another 30 frames of movement
+  }
+}
+
+function runLtMotion(buffer) {
+  const input = window.tf.tensor3d([buffer], [1, 30, 63]);
+  const out   = motionModel.predict(input);
+  const probs = Array.from(out.dataSync());
+  out.dispose();
+  input.dispose();
+
+  const maxIdx     = probs.indexOf(Math.max(...probs));
+  const confidence = Math.round(probs[maxIdx] * 100);
+  const label      = motionLabelsMap[String(maxIdx)] ?? '?';
+
+  updateLtMotion(label, confidence, probs);
+}
+
+function updateLtStatic(label, confidence, probs) {
+  const card   = document.getElementById('lt-static-card');
+  const lbl    = document.getElementById('lt-static-label');
+  const conf   = document.getElementById('lt-static-conf');
+  const status = document.getElementById('lt-static-status');
+  const bar    = document.getElementById('lt-static-bar');
+  const top3   = document.getElementById('lt-static-top3');
+
+  if (!label) {
+    if (card)   card.className   = 'result-card no-hand';
+    if (lbl)    { lbl.className = 'result-label no-match'; lbl.textContent = '–'; }
+    if (conf)   { conf.className = 'result-conf low'; conf.textContent = '0%'; }
+    if (status) status.textContent = 'No hand detected';
+    if (bar)    bar.style.width = '0%';
+    if (top3)   top3.innerHTML = '<div class="empty-state">Show your hand</div>';
+    return;
+  }
+
+  const matched = confidence >= MATCH_THRESHOLD;
+  if (card)   card.className = matched ? 'result-card matched' : 'result-card';
+  if (lbl)    { lbl.className = matched ? 'result-label' : 'result-label unmatched'; lbl.textContent = label; }
+  if (conf)   { conf.textContent = confidence + '%'; conf.className = 'result-conf ' + confClass(confidence); }
+  if (status) status.textContent = matched ? `Matched ≥${MATCH_THRESHOLD}%` : 'Low confidence';
+  if (bar)    { bar.style.width = confidence + '%'; bar.style.background = confBarColor(confidence); }
+
+  // Top 3
+  if (top3 && probs.length > 0) {
+    const sorted = probs.map((p,i) => ({i,p})).sort((a,b) => b.p - a.p).slice(0,3);
+    top3.innerHTML = sorted.map((item, rank) => {
+      const s   = labelsMap[String(item.i)] ?? '?';
+      const pct = Math.round(item.p * 100);
+      return `<div class="top5-row${rank===0?' winner':''}">
+        <span class="top5-rank">#${rank+1}</span>
+        <span class="top5-sign${rank===0?' winner-sign':''}">${s}</span>
+        <div class="top5-bar-wrap"><div class="top5-bar-fill${rank===0?' top':''}" style="width:${pct}%"></div></div>
+        <span class="top5-pct">${pct}%</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Log static if above threshold and changed
+  if (matched && label !== ltLastStaticLabel) {
+    ltLastStaticLabel = label;
+    appendLtLog('STATIC', label, confidence);
+  } else if (!matched) {
+    ltLastStaticLabel = null;
+  }
+}
+
+function updateLtMotion(label, confidence, probs) {
+  const card   = document.getElementById('lt-motion-card');
+  const lbl    = document.getElementById('lt-motion-label');
+  const conf   = document.getElementById('lt-motion-conf');
+  const status = document.getElementById('lt-motion-status');
+  const bar    = document.getElementById('lt-motion-bar');
+  const pBody  = document.getElementById('lt-motion-probs');
+
+  const matched = confidence >= 60;
+  if (card)   card.className = matched ? 'result-card matched' : 'result-card';
+  if (lbl)    { lbl.className = matched ? 'result-label' : 'result-label unmatched'; lbl.textContent = label; }
+  if (conf)   { conf.textContent = confidence + '%'; conf.className = 'result-conf ' + confClass(confidence); }
+  if (status) status.textContent = matched ? '✅ Motion sign detected' : 'Low confidence — keep signing';
+  if (bar)    { bar.style.width = confidence + '%'; bar.style.background = confBarColor(confidence); }
+
+  // All probs
+  if (pBody && probs.length > 0) {
+    const sorted = probs.map((p,i) => ({i,p})).sort((a,b) => b.p - a.p);
+    pBody.innerHTML = sorted.map((item, rank) => {
+      const s   = motionLabelsMap[String(item.i)] ?? '?';
+      const pct = Math.round(item.p * 100);
+      return `<div class="top5-row${rank===0?' winner':''}">
+        <span class="top5-rank">#${rank+1}</span>
+        <span class="top5-sign${rank===0?' winner-sign':''}" style="min-width:90px;">${s}</span>
+        <div class="top5-bar-wrap"><div class="top5-bar-fill${rank===0?' top':''}" style="width:${pct}%"></div></div>
+        <span class="top5-pct">${pct}%</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Log motion
+  if (matched && label !== ltLastMotionLabel) {
+    ltLastMotionLabel = label;
+    appendLtLog('MOTION', label, confidence);
+  } else if (!matched) {
+    ltLastMotionLabel = null;
+  }
+}
+
+function appendLtLog(type, label, confidence) {
+  const body = document.getElementById('lt-log-body');
+  if (!body) return;
+  if (body.querySelector('.empty-state')) body.innerHTML = '';
+  ltLogCount++;
+  const now   = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const col   = confBarColor(confidence);
+  const typec = type === 'MOTION' ? 'var(--blue)' : 'var(--green)';
+  const row   = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border);font-size:12px;';
+  row.innerHTML = `
+    <span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;
+                 background:${typec}22;color:${typec};font-family:var(--font-mono);
+                 letter-spacing:.05em;flex-shrink:0;">${type}</span>
+    <span style="font-size:18px;font-weight:800;color:var(--text);min-width:100px;">${label}</span>
+    <span style="font-family:var(--font-mono);font-size:11px;color:${col}">${confidence}%</span>
+    <div style="flex:1;background:var(--border);border-radius:3px;height:4px;overflow:hidden">
+      <div style="height:100%;width:${confidence}%;background:${col};border-radius:3px"></div>
+    </div>
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${now}</span>`;
+  body.prepend(row);
+  while (body.children.length > 80) body.removeChild(body.lastChild);
+}
+
+
+window.clearLtLog = function() {
+  ltLogCount = 0;
+  ltBuffer   = [];
+  ltLastMotionLabel = null;
+  ltLastStaticLabel = null;
+  const body = document.getElementById('lt-log-body');
+  if (body) body.innerHTML = '<div class="empty-state">Detections appear here</div>';
+  const bufBar = document.getElementById('lt-buf-bar');
+  if (bufBar) bufBar.style.width = '0%';
+  const bufCount = document.getElementById('lt-buf-count');
+  if (bufCount) bufCount.textContent = '0 / 30';
+};
+
+window.ltThreshChange = function(val) {
+  ltMoveThreshold = parseInt(val) / 1000;
+  const el = document.getElementById('lt-thresh-val');
+  if (el) el.textContent = ltMoveThreshold.toFixed(3);
+};
