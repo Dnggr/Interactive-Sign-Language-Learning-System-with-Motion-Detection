@@ -1370,6 +1370,7 @@ function appendLtLog(type, label, confidence) {
   while (body.children.length > 80) body.removeChild(body.lastChild);
 }
 
+
 window.clearLtLog = function() {
   ltLogCount = 0;
   ltBuffer   = [];
