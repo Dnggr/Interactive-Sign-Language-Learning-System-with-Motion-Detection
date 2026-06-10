@@ -30,13 +30,16 @@ const MOTION_SIGNS = [
 const MOTION_TARGET = 150;
 let SEQ_FRAMES = 30;
 
+// Max consecutive frames with no hand before auto-cancel
+const DROPOUT_CANCEL_THRESHOLD = 10;
+
 // ══════════════════════════════════════════════════════════
 // MEDIAPIPE STATE
 // ══════════════════════════════════════════════════════════
 
-let handLandmarker  = null;
-let lastVideoTime   = -1;
-let currentLandmarks = null;   // exposed to capture functions
+let handLandmarker   = null;
+let lastVideoTime    = -1;
+let currentLandmarks = null;
 
 // ══════════════════════════════════════════════════════════
 // STATIC CAPTURE STATE
@@ -55,6 +58,7 @@ let motionCaptures   = [];   // [{ label, sequence:[[63],...] }]
 let motionRecentLog  = [];
 let isRecording      = false;
 let recordBuffer     = [];
+let dropoutCount     = 0;    // consecutive no-hand frames while recording
 
 // ══════════════════════════════════════════════════════════
 // INIT
@@ -129,14 +133,14 @@ function loop() {
     lastVideoTime = v.currentTime;
     const result  = handLandmarker.detectForVideo(v, performance.now());
 
-    const lms = result.landmarks  ?? [];
+    const lms  = result.landmarks  ?? [];
     const hdns = result.handedness ?? [];
 
     const cStatic = document.getElementById('canvas-static');
     const cMotion = document.getElementById('canvas-motion');
 
     if (lms.length > 0) {
-      // Draw skeleton on whichever canvas is visible
+      // Draw skeleton on both canvases
       [cStatic, cMotion].forEach(c => {
         const ctx = c.getContext('2d');
         ctx.clearRect(0, 0, c.width, c.height);
@@ -147,8 +151,9 @@ function loop() {
       document.getElementById('hand-status').textContent =
         lms.length + ' hand' + (lms.length > 1 ? 's' : '') + ' detected';
 
-      // Feed motion recording
+      // ── MOTION RECORDING: good frame ──
       if (isRecording && currentLandmarks) {
+        dropoutCount = 0; // reset dropout counter on a good frame
         const flat = currentLandmarks.flatMap(p => [p.x, p.y, p.z]);
         recordBuffer.push(flat);
         updateRecordingProgressUI();
@@ -158,11 +163,24 @@ function loop() {
       }
 
     } else {
+      // No hands detected
       currentLandmarks = null;
       [cStatic, cMotion].forEach(c => {
         c.getContext('2d').clearRect(0, 0, c.width, c.height);
       });
       document.getElementById('hand-status').textContent = 'No hand detected';
+
+      // ── MOTION RECORDING: dropout frame ──
+      // Pause the buffer (don't push a bad zero-frame).
+      // If hand is gone for too long, auto-cancel so bad data isn't saved.
+      if (isRecording) {
+        dropoutCount++;
+        // Still update the UI so the bar doesn't freeze confusingly
+        updateRecordingProgressUI();
+        if (dropoutCount > DROPOUT_CANCEL_THRESHOLD) {
+          cancelRecording('❌ Hand lost — try again');
+        }
+      }
     }
   }
 
@@ -243,21 +261,19 @@ function updateActiveStaticStrip() {
 }
 
 function updateStaticCell(sign) {
-  const n = countStatic(sign);
+  const n       = countStatic(sign);
   const countEl = document.getElementById('sp-count-' + sign);
   const fillEl  = document.getElementById('sp-fill-'  + sign);
   const cell    = document.getElementById('sp-cell-'  + sign);
   if (countEl) countEl.textContent = `${n} / ${STATIC_TARGET}`;
   if (fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / STATIC_TARGET) * 100)) + '%';
-  if (cell) {
-    cell.classList.toggle('done', n >= STATIC_TARGET);
-  }
+  if (cell)    cell.classList.toggle('done', n >= STATIC_TARGET);
 }
 
 function updateStaticCountTable() {
   const tbl = document.getElementById('static-count-table');
   tbl.innerHTML = STATIC_SIGNS.map(sign => {
-    const n = countStatic(sign);
+    const n     = countStatic(sign);
     const done  = n >= STATIC_TARGET;
     const color = done ? 'var(--green)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
     return `<div class="ct-row">
@@ -286,7 +302,7 @@ function flashCell(id) {
 }
 
 function addStaticMiniLog(sign, total) {
-  const t = new Date();
+  const t  = new Date();
   const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
   staticRecentLog.unshift({ sign, ts, total });
   if (staticRecentLog.length > 40) staticRecentLog.pop();
@@ -302,15 +318,15 @@ function addStaticMiniLog(sign, total) {
 window.captureStatic = function() {
   const lm = currentLandmarks;
   if (!lm || lm.length !== 21) {
-    const btn = document.getElementById('btn-static-capture');
+    const btn  = document.getElementById('btn-static-capture');
     const orig = btn.innerHTML;
     btn.innerHTML = '⚠️ &nbsp;No hand detected!';
     btn.style.borderColor = 'var(--red)';
-    btn.style.color = 'var(--red)';
+    btn.style.color       = 'var(--red)';
     setTimeout(() => {
       btn.innerHTML = orig;
       btn.style.borderColor = '';
-      btn.style.color = '';
+      btn.style.color       = '';
     }, 900);
     return;
   }
@@ -444,19 +460,19 @@ function updateActiveMotionStrip() {
 }
 
 function updateMotionCell(sign) {
-  const n = countMotion(sign);
+  const n       = countMotion(sign);
   const countEl = document.getElementById('mp-count-' + sign);
   const fillEl  = document.getElementById('mp-fill-'  + sign);
   const cell    = document.getElementById('mp-cell-'  + sign);
   if (countEl) countEl.textContent = `${n} / ${MOTION_TARGET}`;
   if (fillEl)  fillEl.style.width  = Math.min(100, Math.round((n / MOTION_TARGET) * 100)) + '%';
-  if (cell) cell.classList.toggle('done', n >= MOTION_TARGET);
+  if (cell)    cell.classList.toggle('done', n >= MOTION_TARGET);
 }
 
 function updateMotionCountTable() {
   const tbl = document.getElementById('motion-count-table');
   tbl.innerHTML = MOTION_SIGNS.map(sign => {
-    const n = countMotion(sign);
+    const n     = countMotion(sign);
     const done  = n >= MOTION_TARGET;
     const color = done ? 'var(--purple)' : n > 0 ? 'var(--amber)' : 'var(--muted)';
     return `<div class="ct-row">
@@ -474,10 +490,47 @@ function updateRecordingProgressUI() {
   document.getElementById('rec-progress-wrap').style.display = 'block';
 }
 
+function resetRecordingUI() {
+  const btn = document.getElementById('btn-motion-record');
+  btn.classList.remove('recording');
+  btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
+  document.getElementById('rec-progress-wrap').style.display = 'none';
+  document.getElementById('seq-bar').style.width = '0%';
+  document.getElementById('rec-frame-count').textContent = '0';
+}
+
+// ── Called when hand disappears for too long during recording ──
+function cancelRecording(msg) {
+  isRecording  = false;
+  recordBuffer = [];
+  dropoutCount = 0;
+
+  resetRecordingUI();
+
+  // Red screen flash
+  flashScreen('var(--red)');
+
+  // Show cancel message in the active-motion-display temporarily
+  const disp = document.getElementById('active-motion-display');
+  const orig  = disp.textContent;
+  const origColor = disp.style.color;
+  const origSize  = disp.style.fontSize;
+  disp.textContent  = msg;
+  disp.style.color  = 'var(--red)';
+  disp.style.fontSize = '14px';
+  setTimeout(() => {
+    disp.textContent  = orig;
+    disp.style.color  = origColor;
+    disp.style.fontSize = origSize;
+  }, 1600);
+}
+
 function finishRecording() {
   isRecording = false;
+  dropoutCount = 0;
   const sequence = [...recordBuffer];
   recordBuffer = [];
+
   motionCaptures.push({ label: activeMotionSign, sequence });
 
   const total = motionCaptures.length;
@@ -486,15 +539,10 @@ function finishRecording() {
   updateActiveMotionStrip();
   updateMotionCountTable();
 
-  const btn = document.getElementById('btn-motion-record');
-  btn.classList.remove('recording');
-  btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
-  document.getElementById('rec-progress-wrap').style.display = 'none';
-  document.getElementById('seq-bar').style.width = '0%';
-
+  resetRecordingUI();
   flashScreen('var(--purple)');
 
-  const t = new Date();
+  const t  = new Date();
   const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
   motionRecentLog.unshift({ sign: activeMotionSign, ts, total });
   if (motionRecentLog.length > 40) motionRecentLog.pop();
@@ -518,24 +566,20 @@ function finishRecording() {
 
 window.recordMotion = function() {
   if (isRecording) {
-    // Cancel
-    isRecording  = false;
-    recordBuffer = [];
-    const btn = document.getElementById('btn-motion-record');
-    btn.classList.remove('recording');
-    btn.innerHTML = '🎬 &nbsp;RECORD &nbsp;<span class="kbd">R</span>';
-    document.getElementById('rec-progress-wrap').style.display = 'none';
-    document.getElementById('seq-bar').style.width = '0%';
+    // Manual cancel by pressing R again
+    cancelRecording('Recording cancelled');
     return;
   }
 
   isRecording  = true;
   recordBuffer = [];
+  dropoutCount = 0;
+
   const btn = document.getElementById('btn-motion-record');
   btn.classList.add('recording');
   btn.innerHTML = '⏹ &nbsp;STOP RECORDING &nbsp;<span class="kbd">R</span>';
   document.getElementById('rec-target-frames').textContent = SEQ_FRAMES;
-  document.getElementById('rec-frame-count').textContent = '0';
+  document.getElementById('rec-frame-count').textContent   = '0';
   document.getElementById('seq-bar').style.width = '0%';
   document.getElementById('rec-progress-wrap').style.display = 'block';
 };
@@ -657,7 +701,7 @@ const CONN = [
 
 function drawSkeleton(ctx, lm, w, h) {
   ctx.strokeStyle = '#FFFFFF55';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth   = 1.5;
   for (const [a, b] of CONN) {
     ctx.beginPath();
     ctx.moveTo(lm[a].x * w, lm[a].y * h);
