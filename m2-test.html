@@ -839,6 +839,8 @@
   <button class="tab-btn"        data-tab="audit"    onclick="switchTab('audit')">Accuracy Audit</button>
   <button class="tab-btn"        data-tab="quiz"     onclick="switchTab('quiz')">Quiz Mode</button>
   <button class="tab-btn"        data-tab="rawdata"  onclick="switchTab('rawdata')">Raw Data</button>
+  <button class="tab-btn"        data-tab="motion"   onclick="switchTab('motion')">Motion Test ✦</button>
+  <button class="tab-btn"        data-tab="livetest" onclick="switchTab('livetest')">⚡ Live Test</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
@@ -1142,6 +1144,232 @@
     </div>
   </div>
 </div><!-- /panel-rawdata -->
+
+<!-- TAB 5 — MOTION MODEL LIVE TEST -->
+<div id="panel-motion" class="tab-panel">
+
+  <!-- LEFT PANE -->
+  <div class="pane-left">
+    <div class="cam-block">
+      <video id="webcam-motion" autoplay playsinline muted></video>
+      <canvas id="canvas-motion"></canvas>
+      <div class="hand-status-pill" id="hand-status-motion">No hand</div>
+    </div>
+
+    <div class="sec-hd">Motion Model Status</div>
+    <div class="ctrl-block" style="gap:6px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div id="motion-model-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+        <span id="motion-model-status-text" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">asl_motion_model — not loaded</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div id="motion-labels-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+        <span id="motion-labels-status-text" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">motion labels.json — not loaded</span>
+      </div>
+    </div>
+
+    <div class="sec-hd">Frame Buffer</div>
+    <div class="ctrl-block">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="ctrl-label">Collecting frames</span>
+        <span id="motion-buf-count" style="font-family:var(--font-mono);font-size:10px;color:var(--green);">0 / 30</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;">
+        <div id="motion-buf-bar" style="height:100%;width:0%;background:var(--green);border-radius:4px;transition:width .1s;"></div>
+      </div>
+      <div style="font-size:9px;color:var(--muted);font-family:var(--font-mono);margin-top:2px;">
+        Predicts every 30 frames (~1 sec) — keep signing
+      </div>
+    </div>
+
+    <div class="sec-hd">Confidence Threshold</div>
+    <div class="ctrl-block">
+      <div style="display:flex;justify-content:space-between;">
+        <span class="ctrl-label">Min to show</span>
+        <span id="motion-thresh-val" style="font-family:var(--font-mono);font-size:10px;color:var(--amber);">60%</span>
+      </div>
+      <input type="range" id="motion-thresh-slider" min="30" max="95" value="60"
+             style="width:100%;accent-color:var(--green);"
+             oninput="motionThresholdChange(this.value)">
+    </div>
+
+    <div class="ctrl-block">
+      <button onclick="clearMotionLog()"
+              style="width:100%;padding:7px;background:var(--bg);border:1px solid var(--border);
+                     color:var(--muted);font-family:var(--font-ui);font-size:10px;font-weight:700;
+                     letter-spacing:.06em;text-transform:uppercase;border-radius:var(--radius-sm);cursor:pointer;">
+        Clear Log
+      </button>
+    </div>
+  </div>
+
+  <!-- RIGHT PANE -->
+  <div class="pane-right">
+
+    <div id="motion-result-card" class="result-card no-hand">
+      <div id="motion-result-label" class="result-label no-match" style="font-size:52px;min-width:120px;">–</div>
+      <div class="result-meta">
+        <div id="motion-result-conf" class="result-conf low">0%</div>
+        <div id="motion-result-status" class="result-status">Show a motion sign (J, Z, HELLO, THANK YOU)</div>
+        <div class="conf-bar-wrap" style="margin-top:10px;">
+          <div id="motion-conf-bar" class="conf-bar-fill" style="width:0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="top5-card">
+      <div class="top5-hd">All Class Probabilities</div>
+      <div id="motion-probs-body">
+        <div class="empty-state">Waiting for first prediction…</div>
+      </div>
+    </div>
+
+    <div class="top5-card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+      <div class="top5-hd" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Prediction Log</span>
+        <span id="motion-log-count" style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">0 predictions</span>
+      </div>
+      <div id="motion-log-body" style="flex:1;overflow-y:auto;">
+        <div class="empty-state">Predictions appear here every ~1 second</div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /panel-motion -->
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 6 — LIVE TEST (Static + Motion combined)              -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div id="panel-livetest" class="tab-panel">
+
+  <!-- LEFT PANE — shared camera -->
+  <div class="pane-left">
+    <div class="cam-block">
+      <video id="webcam-livetest" autoplay playsinline muted></video>
+      <canvas id="canvas-livetest"></canvas>
+      <div class="hand-status-pill" id="hand-status-livetest">No hand</div>
+    </div>
+
+    <!-- Movement meter -->
+    <div class="sec-hd">Hand Movement</div>
+    <div class="ctrl-block">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="ctrl-label">Motion level</span>
+        <span id="lt-move-val" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">0.000</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;">
+        <div id="lt-move-bar" style="height:100%;width:0%;background:var(--blue);border-radius:4px;transition:width .1s;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+        <span class="ctrl-label">Movement threshold</span>
+        <span id="lt-thresh-val" style="font-family:var(--font-mono);font-size:10px;color:var(--amber);">0.010</span>
+      </div>
+      <input type="range" id="lt-thresh-slider" min="2" max="50" value="10"
+             style="width:100%;accent-color:var(--green);"
+             oninput="ltThreshChange(this.value)">
+      <div style="font-size:9px;color:var(--muted);font-family:var(--font-mono);margin-top:2px;">
+        Motion model only fires when movement &gt; threshold
+      </div>
+    </div>
+
+    <!-- Buffer progress -->
+    <div class="sec-hd">Motion Frame Buffer</div>
+    <div class="ctrl-block">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="ctrl-label">Collecting</span>
+        <span id="lt-buf-count" style="font-family:var(--font-mono);font-size:10px;color:var(--green);">0 / 30</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;">
+        <div id="lt-buf-bar" style="height:100%;width:0%;background:var(--green);border-radius:4px;transition:width .1s;"></div>
+      </div>
+    </div>
+
+    <!-- Motion model status -->
+    <div class="sec-hd">Model Status</div>
+    <div class="ctrl-block" style="gap:6px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div id="lt-static-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+        <span id="lt-static-txt" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">Static model</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div id="lt-motion-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+        <span id="lt-motion-txt" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">Motion model</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANE — two result cards side by side -->
+  <div class="pane-right">
+
+    <!-- Two cards row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex-shrink:0;">
+
+      <!-- Static result -->
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);">
+          Static — Letters (A–Z)
+        </div>
+        <div id="lt-static-card" class="result-card no-hand" style="flex-direction:column;align-items:flex-start;gap:8px;">
+          <div style="display:flex;align-items:center;gap:12px;width:100%;">
+            <div id="lt-static-label" class="result-label no-match" style="font-size:56px;min-width:64px;">–</div>
+            <div class="result-meta">
+              <div id="lt-static-conf" class="result-conf low">0%</div>
+              <div id="lt-static-status" class="result-status">No hand</div>
+            </div>
+          </div>
+          <div class="conf-bar-wrap" style="width:100%;margin-top:0;">
+            <div id="lt-static-bar" class="conf-bar-fill" style="width:0%;"></div>
+          </div>
+        </div>
+        <!-- Static top-3 -->
+        <div class="top5-card">
+          <div class="top5-hd">Top Predictions</div>
+          <div id="lt-static-top3"><div class="empty-state">Show your hand</div></div>
+        </div>
+      </div>
+
+      <!-- Motion result -->
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);">
+          Motion — Words (J, Z, HELLO, THANK YOU)
+        </div>
+        <div id="lt-motion-card" class="result-card no-hand" style="flex-direction:column;align-items:flex-start;gap:8px;">
+          <div style="display:flex;align-items:center;gap:12px;width:100%;">
+            <div id="lt-motion-label" class="result-label no-match" style="font-size:40px;min-width:64px;">–</div>
+            <div class="result-meta">
+              <div id="lt-motion-conf" class="result-conf low">0%</div>
+              <div id="lt-motion-status" class="result-status">Move your hand to sign</div>
+            </div>
+          </div>
+          <div class="conf-bar-wrap" style="width:100%;margin-top:0;">
+            <div id="lt-motion-bar" class="conf-bar-fill" style="width:0%;"></div>
+          </div>
+        </div>
+        <!-- Motion all probs -->
+        <div class="top5-card">
+          <div class="top5-hd">All Class Probabilities</div>
+          <div id="lt-motion-probs"><div class="empty-state">Waiting for sign…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Combined log -->
+    <div class="top5-card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+      <div class="top5-hd" style="display:flex;justify-content:space-between;">
+        <span>Combined Detection Log</span>
+        <button onclick="clearLtLog()"
+                style="background:none;border:none;color:var(--muted);font-family:var(--font-ui);
+                       font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+                       cursor:pointer;">Clear</button>
+      </div>
+      <div id="lt-log-body" style="flex:1;overflow-y:auto;">
+        <div class="empty-state">Detections appear here</div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /panel-livetest -->
 
 <script type="module" src="js/m2-test.js"></script>
 </body>
